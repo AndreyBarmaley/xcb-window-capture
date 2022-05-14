@@ -24,7 +24,8 @@
 
 #include <iostream>
 #include <exception>
-#include "encoder.h"
+
+#include "ffmpegencoder.h"
 
 namespace FFMPEG
 {

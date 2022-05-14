@@ -38,7 +38,7 @@
 
 #include <atomic>
 
-#include "encoder.h"
+#include "ffmpegencoder.h"
 #include "xcbwrapper.h"
 
 namespace Ui
