@@ -42,6 +42,7 @@
 
 #include <ctime>
 #include <chrono>
+#include <thread>
 #include <exception>
 
 #include "mainsettings.h"
