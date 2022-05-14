@@ -261,6 +261,7 @@ bool MainSettings::startRecord(void)
             actionStart->setEnabled(false);
             actionStop->setEnabled(true);
             trayIcon->setIcon(QPixmap(QString(":/icons/streamg")));
+            trayIcon->setToolTip(QString("capture window id: %1").arg(windowId));
             encoder->start();
             return true;
         }
@@ -279,7 +280,10 @@ void MainSettings::stopRecord(QString error)
 {
     windowId = XCB_WINDOW_NONE;
     ui->lineEditWindowDescription->clear();
+    ui->labelPreview->clear();
+
     trayIcon->setToolTip(QString("error: %1").arg(error));
+
     stopRecord();
 }
 
@@ -289,7 +293,10 @@ void MainSettings::stopRecord(void)
 
     actionStart->setEnabled(true);
     actionStop->setEnabled(false);
+
     trayIcon->setIcon(QPixmap(QString(":/icons/streamr")));
+    auto version = QString("%1 version: %2").arg(QCoreApplication::applicationName()).arg(QCoreApplication::applicationVersion());
+    trayIcon->setToolTip(version);
 }
 
 /* FFmpegEncoderPool */
@@ -364,7 +371,7 @@ void FFmpegEncoderPool::run(void)
 
             if(winsz.width() != getFrameWidth() || winsz.height() != getFrameHeight())
             {
-                emit errorNotify("window size changed");
+                qWarning() << "window size changed";
                 emit restartNotify();
                 break;
             }
