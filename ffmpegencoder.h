@@ -92,9 +92,13 @@ namespace FFMPEG
     class H264Encoder
     {
         AVStream* stream;
+#if LIBAVFORMAT_VERSION_MAJOR < 59
         AVOutputFormat* oformat;
         AVCodec* codec;
-
+#else
+        const AVOutputFormat* oformat;
+        const AVCodec* codec;
+#endif
         std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx;
         std::unique_ptr<AVFormatContext, AVFormatContextDeleter> avfctx;
         std::unique_ptr<SwsContext, SwsContextDeleter> swsctx;
