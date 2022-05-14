@@ -1,0 +1,7 @@
+<RCC>
+    <qresource prefix="/icons">
+        <file alias="streamb">icons/stream_blue.png</file>
+        <file alias="streamr">icons/stream_red.png</file>
+        <file alias="streamg">icons/stream_green.png</file>
+    </qresource>
+</RCC>
