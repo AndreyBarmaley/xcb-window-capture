@@ -1,2 +1,2 @@
 # xcb-window-capture
-record X11 window to video
+record X11 window to h264 video
