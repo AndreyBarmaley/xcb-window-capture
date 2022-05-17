@@ -49,7 +49,7 @@ int main(int argc, char *argv[])
     try
     {
         MainSettings w;
-        w.hide();
+        w.show();
         return a.exec();
     }
     catch(const std::exception & err)

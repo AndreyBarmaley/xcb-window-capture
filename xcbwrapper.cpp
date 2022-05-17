@@ -112,7 +112,7 @@ QPair<XcbPixmapInfoReply, GenericError>
         return QPair<XcbPixmapInfoReply, GenericError>(res, err);
     }
         
-    if(auto & reply = xcbReply.reply())
+    if(auto reply = xcbReply.reply())
         res = std::make_shared<XcbPixmapInfoSHM>(reply->depth, reply->visual, *this, reply->size);
 
     return QPair<XcbPixmapInfoReply, GenericError>(res, nullptr);
@@ -191,6 +191,10 @@ XcbConnection::XcbConnection() :
         qWarning() << "xcb init failed";
     }
 
+    // xfixes
+    if(! initXFIXES())
+        qWarning() << "xfixes init failed";
+
     // event filter
     const uint32_t values[] = { XCB_EVENT_MASK_PROPERTY_CHANGE };
     xcb_change_window_attributes(conn.get(), screen->root, XCB_CW_EVENT_MASK, values);
@@ -206,12 +210,32 @@ bool XcbConnection::initSHM(void)
 
     auto xcbReply = getReplyFunc2(xcb_shm_query_version, conn.get());
 
-    if(auto & err = xcbReply.error())
+    if(auto err = xcbReply.error())
         qWarning() << err.toString("xcb_shm_query_version");
     else
     if(xcbReply.reply())
     {
         // qWarning() << QString("shm version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
+        return true;
+    }
+
+    return false;
+}
+
+bool XcbConnection::initXFIXES(void)
+{
+    auto xfixes = xcb_get_extension_data(conn.get(), &xcb_xfixes_id);
+    if(! xfixes || ! xfixes->present)
+        return false;
+
+    auto xcbReply = getReplyFunc2(xcb_xfixes_query_version, conn.get(), XCB_XFIXES_MAJOR_VERSION, XCB_XFIXES_MINOR_VERSION);
+
+    if(auto err = xcbReply.error())
+        qWarning() << err.toString("xcb_xfixes_query_version");
+    else
+    if(xcbReply.reply())
+    {
+        // qWarning() << QString("xfixes version: %1.%1").arg(reply->major_version).arg(reply->minor_version);
         return true;
     }
 
@@ -235,21 +259,38 @@ XcbSHM XcbConnection::getSHM(size_t shmsz)
     return XcbSHM(shmid, shmaddr, conn.get());
 }
 
-QSize XcbConnection::getWindowSize(xcb_window_t win) const
+QRect XcbConnection::getWindowGeometry(xcb_window_t win) const
 {
     auto xcbReply = getReplyFunc2(xcb_get_geometry, conn.get(), win);
 
-    if(auto & reply = xcbReply.reply())
-        return QSize(reply->width, reply->height);
+    if(auto reply = xcbReply.reply())
+    {
+        auto xcbReply2 = getReplyFunc2(xcb_translate_coordinates, conn.get(), win, screen->root, reply->x, reply->y);
 
-    return QSize();
+        if(auto reply2 = xcbReply2.reply())
+            return QRect(reply2->dst_x, reply2->dst_y, reply->width, reply->height);
+
+        return QRect(reply->x, reply->y, reply->width, reply->height);
+    }
+
+    return QRect();
+}
+
+QPoint XcbConnection::getWindowPosition(xcb_window_t win) const
+{
+    return getWindowGeometry(win).topLeft();
+}
+
+QSize XcbConnection::getWindowSize(xcb_window_t win) const
+{
+    return getWindowGeometry(win).size();
 }
 
 QString XcbConnection::getAtomName(xcb_atom_t atom) const
 {
     auto xcbReply = getReplyFunc2(xcb_get_atom_name, conn.get(), atom);
 
-    if(auto & reply = xcbReply.reply())
+    if(auto reply = xcbReply.reply())
     {
         const char* name = xcb_get_atom_name_name(reply.get());
         size_t len = xcb_get_atom_name_name_length(reply.get());
@@ -335,7 +376,7 @@ xcb_window_t XcbConnection::getActiveWindow(void) const
     if(xcbReply.error())
         return XCB_WINDOW_NONE;
 
-    if(auto & reply = xcbReply.reply())
+    if(auto reply = xcbReply.reply())
     {
         if(auto res = static_cast<xcb_window_t*>(xcb_get_property_value(reply.get())))
             return *res;
@@ -348,7 +389,7 @@ XcbPropertyReply XcbConnection::getPropertyAnyType(xcb_window_t win, xcb_atom_t 
 {
     auto xcbReply = getReplyFunc2(xcb_get_property, conn.get(), false, win, prop, XCB_GET_PROPERTY_TYPE_ANY, offset, length);
 
-    if(auto & err = xcbReply.error())
+    if(auto err = xcbReply.error())
         qWarning() << err.toString("xcb_get_property");
 
     return xcbReply.reply();
@@ -466,14 +507,14 @@ QPair<XcbPixmapInfoReply, QString>
             allowRows = reg.y() + reg.height() - yy;
 
         auto xcbReply = getReplyFunc2(xcb_get_image, conn.get(), XCB_IMAGE_FORMAT_Z_PIXMAP, win, reg.x(), yy, reg.width(), allowRows, planeMask);
-        if(auto & err = xcbReply.error())
+        if(auto err = xcbReply.error())
         {
             res.second = err.toString("xcb_get_image");
             qWarning() << res.second;
             break;
         }
 
-        if(auto & reply = xcbReply.reply())
+        if(auto reply = xcbReply.reply())
         {
             if(! info)
                 info = new XcbPixmapInfoBuffer(reply->depth, reply->visual, reg.height() * pitch);

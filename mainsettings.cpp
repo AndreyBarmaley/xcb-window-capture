@@ -45,6 +45,8 @@
 #include <thread>
 #include <exception>
 
+#include "xcb/xfixes.h"
+
 #include "mainsettings.h"
 #include "ui_mainsettings.h"
 
@@ -59,7 +61,7 @@ MainSettings::MainSettings(QWidget* parent) :
     auto version = QString("%1 version: %2").arg(QCoreApplication::applicationName()).arg(QCoreApplication::applicationVersion());
     auto github = QString("https://github.com/AndreyBarmaley/xcb-window-capture");
     ui->setupUi(this);
-    ui->tabWidget->setCurrentIndex(0);
+    ui->tabWidget->setCurrentIndex(1);
     ui->aboutInfo->setText(QString("<center><b>%1</b></center><br><br>"
                                    "<p>Source code: <a href='%2'>%2</a></p>"
                                    "<p>Copyright © 2022 by Andrey Afletdinov <public.irkutsk@gmail.com></p>").arg(version).arg(github));
@@ -72,6 +74,8 @@ MainSettings::MainSettings(QWidget* parent) :
         ui->comboBoxH264Preset->addItem(FFMPEG::H264Preset::name(type), type);
     }
     ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(FFMPEG::H264Preset::Medium));
+    ui->checkBoxShowCursor->setChecked(true);
+    ui->pushButtonStart->setDisabled(true);
 
     configLoad();
 
@@ -152,6 +156,13 @@ void MainSettings::configSave(void)
 
     QDataStream ds(&file);
     ds << int(VERSION);
+    ds << pos();
+
+    ds << ui->comboBoxH264Preset->currentData().toInt();
+    ds << ui->lineEditBitRate->text().toInt();
+    ds << ui->lineEditOutputFile->text();
+
+    ds << ui->checkBoxShowCursor->isChecked();
 }
 
 void MainSettings::configLoad(void)
@@ -167,6 +178,24 @@ void MainSettings::configLoad(void)
     QDataStream ds(&file);
     int version;
     ds >> version;
+
+    QPoint pos;
+    ds >> pos;
+    move(pos);
+
+    int h264Preset, h264BitRate;
+    ds >> h264Preset >> h264BitRate;
+
+    ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(h264Preset));
+    ui->lineEditBitRate->setText(QString::number(h264BitRate));
+
+    QString outputPath;
+    ds >> outputPath;
+    ui->lineEditOutputFile->setText(outputPath);
+
+    bool showCursor;
+    ds >> showCursor;
+    ui->checkBoxShowCursor->setChecked(showCursor);
 }
 
 void MainSettings::updatePreviewLabel(quint32 win)
@@ -197,6 +226,7 @@ void MainSettings::updatePreviewLabel(quint32 win)
 
             windowId = win;
             actionStart->setEnabled(true);
+            ui->pushButtonStart->setEnabled(true);
         }
         else
         {
@@ -234,6 +264,9 @@ void MainSettings::selectWindows(void)
 
 bool MainSettings::startRecord(void)
 {
+    if(isVisible())
+        hide();
+
     if(windowId != XCB_WINDOW_NONE)
     {
         bool error = false;
@@ -245,7 +278,9 @@ bool MainSettings::startRecord(void)
         try
         {
             auto format = ui->lineEditOutputFile->text();
-            encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, xcb, format.toStdString(), this));
+            bool cursor = ui->checkBoxShowCursor->isChecked();
+            bool audio = true;
+            encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, xcb, format.toStdString(), cursor, audio, this));
         }
         catch(const std::runtime_error & err)
         {
@@ -282,6 +317,8 @@ void MainSettings::stopRecord(QString error)
     windowId = XCB_WINDOW_NONE;
     ui->lineEditWindowDescription->clear();
     ui->labelPreview->clear();
+    actionStart->setDisabled(true);
+    ui->pushButtonStart->setDisabled(true);
 
     trayIcon->setToolTip(QString("error: %1").arg(error));
 
@@ -301,8 +338,8 @@ void MainSettings::stopRecord(void)
 }
 
 /* FFmpegEncoderPool */
-FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, std::shared_ptr<XcbConnection> ptr, const std::string & format, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate, false), windowId(win), xcb(ptr), shutdown(false)
+FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool audio, QObject* obj)
+    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate, false), windowId(win), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio)
 {
     time_t raw;
     std::time(& raw);
@@ -312,6 +349,9 @@ FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, in
 
     struct tm* timeinfo = std::localtime(&raw);
     std::strftime(outputPath.get(), len - 1, format.c_str(), timeinfo);
+
+    showCursor = cursor;
+    audioStream = audio;
 }
 
 FFmpegEncoderPool::~FFmpegEncoderPool()
@@ -379,7 +419,34 @@ void FFmpegEncoderPool::run(void)
 
             auto & reply = pair.first;
             int bytesPerLine = reply->size() / winsz.height();
- 
+
+            // sync cursor
+            if(showCursor)
+            {
+                QImage windowImage(reply->data(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBA8888);
+                auto replyCursor = xcb->getReplyFunc2(xcb_xfixes_get_cursor_image, xcb->connection());
+
+                if(auto err = replyCursor.error())
+                {
+                    qWarning() << err.toString("xcb_xfixes_get_cursor_image");
+                }
+                else
+                if(auto reply = replyCursor.reply())
+                {
+                    auto geometry = xcb->getWindowGeometry(windowId);
+                    if(geometry.contains(reply->x, reply->y))
+                    {
+                        uint32_t* ptr = xcb_xfixes_get_cursor_image_cursor_image(reply.get());
+                        int len = xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
+
+                        QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBX8888);
+                        QPoint cursorPosition(reply->x, reply->y);
+                        QPainter painter(& windowImage);
+                        painter.drawImage(cursorPosition - geometry.topLeft(), cursorImage);
+                    }
+                }
+            }
+
             try
             {
                 FFMPEG::H264Encoder::pushFrame(reply->data(), bytesPerLine, winsz.height());

@@ -18,6 +18,7 @@ find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
 
 pkg_search_module(XCB REQUIRED xcb)
 pkg_search_module(XCB_SHM REQUIRED xcb-shm)
+pkg_search_module(XCB_XFIXES REQUIRED xcb-xfixes)
 pkg_search_module(AVDEVICE REQUIRED libavdevice)
 pkg_search_module(AVFORMAT REQUIRED libavformat)
 pkg_search_module(AVCODEC REQUIRED libavcodec)
@@ -26,13 +27,12 @@ pkg_search_module(AVUTIL REQUIRED libavutil)
 
 add_executable(XcbWindowCapture main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp resources.qrc)
 
-target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS})
+target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS} ${XCB_XFIXES_CFLAGS} )
 target_compile_options(XcbWindowCapture PUBLIC ${AVDEVICE_CFLAGS} ${AVFORMAT_CFLAGS} ${AVCODEC_CFLAGS} ${AVSWSCALE_CFLAGS} ${AVUTIL_CFLAGS})
-
 target_link_options(XcbWindowCapture PUBLIC ${AVDEVICE_LDFLAGS} ${AVFORMAT_LDFLAGS} ${AVCODEC_LDFLAGS} ${AVSWSCALE_LDFLAGS} ${AVUTIL_LDFLAGS})
 
 target_link_libraries(XcbWindowCapture Qt5::Core Qt5::Gui Qt5::Widgets)
-target_link_libraries(XcbWindowCapture ${XCB_LIBRARIES} ${XCB_SHM_LIBRARIES})
+target_link_libraries(XcbWindowCapture ${XCB_LIBRARIES} ${XCB_SHM_LIBRARIES} ${XCB_XFIXES_LIBRARIES})
 target_link_libraries(XcbWindowCapture ${AVDEVICE_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVSWSCALE_LIBRARIES} ${AVUTIL_LIBRARIES})
 
 set_target_properties(XcbWindowCapture PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

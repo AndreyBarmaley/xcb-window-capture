@@ -34,6 +34,7 @@
 
 #include "xcb/xcb.h"
 #include "xcb/shm.h"
+#include "xcb/xfixes.h"
 
 template<typename ReplyType>
 struct GenericReply : std::shared_ptr<ReplyType>
@@ -184,6 +185,8 @@ protected:
     bool        initSHM(void);
     XcbSHM      getSHM(size_t);
 
+    bool        initXFIXES(void);
+
 public:
     XcbConnection();
     virtual ~XcbConnection() {}
@@ -191,7 +194,11 @@ public:
     xcb_format_t* findFormat(int depth) const;
     xcb_visualtype_t* findVisual(xcb_visualid_t vid) const;
     xcb_atom_t getAtom(const QString & name, bool create = true) const;
+
+    QRect getWindowGeometry(xcb_window_t) const;
+    QPoint getWindowPosition(xcb_window_t) const;
     QSize getWindowSize(xcb_window_t) const;
+
     QString getWindowName(xcb_window_t) const;
     xcb_window_t getActiveWindow(void) const;
     xcb_screen_t* getScreen(void) const;
