@@ -143,6 +143,13 @@
         </layout>
        </item>
        <item>
+        <widget class="QCheckBox" name="checkBoxShowCursor">
+         <property name="text">
+          <string>show cursor</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
           <widget class="QLabel" name="label">
@@ -225,6 +232,13 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout">
      <item>
+      <widget class="QPushButton" name="pushButtonStart">
+       <property name="text">
+        <string>Start</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="horizontalSpacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>
@@ -274,8 +288,8 @@
    <slot>selectWindows()</slot>
    <hints>
     <hint type="sourcelabel">
-     <x>373</x>
-     <y>59</y>
+     <x>378</x>
+     <y>167</y>
     </hint>
     <hint type="destinationlabel">
      <x>400</x>
@@ -283,8 +297,25 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>pushButtonStart</sender>
+   <signal>clicked()</signal>
+   <receiver>MainSettings</receiver>
+   <slot>startRecord()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>58</x>
+     <y>336</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>4</x>
+     <y>301</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>selectWindows()</slot>
+  <slot>startRecord()</slot>
  </slots>
 </ui>

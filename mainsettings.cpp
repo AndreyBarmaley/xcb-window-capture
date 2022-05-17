@@ -423,7 +423,7 @@ void FFmpegEncoderPool::run(void)
             // sync cursor
             if(showCursor)
             {
-                QImage windowImage(reply->data(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBA8888);
+                QImage windowImage(reply->data(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888);
                 auto replyCursor = xcb->getReplyFunc2(xcb_xfixes_get_cursor_image, xcb->connection());
 
                 if(auto err = replyCursor.error())
@@ -439,7 +439,7 @@ void FFmpegEncoderPool::run(void)
                         uint32_t* ptr = xcb_xfixes_get_cursor_image_cursor_image(reply.get());
                         int len = xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
 
-                        QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBX8888);
+                        QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
                         QPoint cursorPosition(reply->x, reply->y);
                         QPainter painter(& windowImage);
                         painter.drawImage(cursorPosition - geometry.topLeft(), cursorImage);
