@@ -152,7 +152,7 @@ size_t XcbPixmapInfoBuffer::size(void) const
 
 /* XcbConnection */
 XcbConnection::XcbConnection() :
-    conn{ xcb_connect(":0", nullptr), xcb_disconnect }, screen(nullptr), format(nullptr)
+    conn{ xcb_connect(nullptr, nullptr), xcb_disconnect }, screen(nullptr), format(nullptr)
 {
     if(xcb_connection_has_error(conn.get()))
         throw std::runtime_error("xcb connect");
