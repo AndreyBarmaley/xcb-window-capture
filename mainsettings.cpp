@@ -179,6 +179,12 @@ void MainSettings::configLoad(void)
     int version;
     ds >> version;
 
+    if(version != VERSION)
+    {
+        qWarning() << "unsupported version" << version;
+        return;
+    }
+
     QPoint pos;
     ds >> pos;
     move(pos);
