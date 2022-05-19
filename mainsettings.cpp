@@ -179,7 +179,7 @@ void MainSettings::configLoad(void)
     int version;
     ds >> version;
 
-    if(version != VERSION)
+    if(0 >= version || version > VERSION)
     {
         qWarning() << "unsupported version" << version;
         return;
