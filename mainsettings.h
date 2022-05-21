@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220516
+#define VERSION 20220520
 
 #include <QList>
 #include <QObject>
@@ -93,6 +93,7 @@ public:
     ~MainSettings();
 
 protected:
+    void keyPressEvent(QKeyEvent*) override;
     void closeEvent(QCloseEvent*) override;
     void showEvent(QShowEvent*) override;
     void hideEvent(QHideEvent*) override;

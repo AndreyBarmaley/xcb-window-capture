@@ -35,9 +35,15 @@ extern "C" {
 #include "libavformat/avio.h"
 #include "libavutil/timestamp.h"
 #include "libswscale/swscale.h"
+#include "libswresample/swresample.h"
 
 #ifdef __cplusplus
 }
+#endif
+
+#ifdef BOOST_STACKTRACE_USE
+#include "boost/stacktrace.hpp"
+#include <sstream>
 #endif
 
 namespace FFMPEG
@@ -66,6 +72,14 @@ namespace FFMPEG
         }
     };
 
+    struct SwrContextDeleter
+    {
+        void operator()(SwrContext* ctx)
+        {
+            swr_free(& ctx);
+        }
+    };
+
     struct AVFrameDeleter
     {
         void operator()(AVFrame* ptr)
@@ -88,41 +102,90 @@ namespace FFMPEG
         const char* name(const type &);
     };
 
+    struct VideoEncoder
+    {
+#if LIBAVFORMAT_VERSION_MAJOR < 59
+        AVCodec* codec = nullptr;
+#else
+        const AVCodec* codec = nullptr;
+#endif
+        AVStream* stream = nullptr;
+        AVFormatContext* avfctx = nullptr;
+
+        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx;
+        std::unique_ptr<SwsContext, SwsContextDeleter> swsctx;
+        std::unique_ptr<AVFrame, AVFrameDeleter> frame;
+
+        int fps = 25;
+        int frameCounter = 0;
+        int frameWidth = 0;
+        int frameHeight = 0;
+
+        void init(AVFormatContext*, const H264Preset::type & h264Preset, int bitrate);
+        void start(int width, int height);
+        void sendFrame(bool withFrame);
+        void pushFrame(const uint8_t* pixels, int pitch, int height);
+    };
+
+    struct runtimeException
+    {
+        const char* func;
+        int code;
+#ifdef BOOST_STACKTRACE_USE
+        std::string trace;
+#endif
+        
+        runtimeException(const char* f, int e) : func(f), code(e)
+        {
+#ifdef BOOST_STACKTRACE_USE
+            std::ostringstream os;
+            os << boost::stacktrace::stacktrace();
+            trace = os.str();
+#endif
+        }
+    };
+
+    QString errorString(int);
+
+    struct AudioEncoder
+    {
+#if LIBAVFORMAT_VERSION_MAJOR < 59
+        AVCodec* codec = nullptr;
+#else
+        const AVCodec* codec = nullptr;
+#endif
+        AVStream* stream = nullptr;
+        AVFormatContext* avfctx = nullptr;
+
+        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx{nullptr, AVCodecContextDeleter()};
+        std::unique_ptr<SwrContext, SwrContextDeleter> swrctx{nullptr, SwrContextDeleter()};
+        std::unique_ptr<AVFrame, AVFrameDeleter> frame;
+
+        void init(AVFormatContext*, int bitrate);
+        void start(void);
+    };
 
     class H264Encoder
     {
-        AVStream* stream;
 #if LIBAVFORMAT_VERSION_MAJOR < 59
         AVOutputFormat* oformat;
-        AVCodec* codec;
 #else
         const AVOutputFormat* oformat;
-        const AVCodec* codec;
 #endif
-        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx;
         std::unique_ptr<AVFormatContext, AVFormatContextDeleter> avfctx;
-        std::unique_ptr<SwsContext, SwsContextDeleter> swsctx;
-        std::unique_ptr<AVFrame, AVFrameDeleter> ovframe;
 
 protected:
-        int fps;
-        int frameCounter;
-        int frameWidth;
-        int frameHeight;
+        VideoEncoder video;
+        AudioEncoder audio;
+
         bool captureStarted;
 
-        void sendFrame(AVFrame* frame);
-
     public:
-        H264Encoder(const H264Preset::type &, int bitrate, bool debug);
+        H264Encoder(const H264Preset::type &, int bitrate);
         ~H264Encoder();
-
-        int getFrameWidth(void) const;
-        int getFrameHeight(void) const;
 
         void startRecord(const char* filename, int width, int height);
         void stopRecord(void);
-        void pushFrame(const uint8_t* pixels, int pitch, int height);
     };
 }
 

@@ -27,6 +27,7 @@
 #include <QLockFile>
 #include <QApplication>
 #include <QStandardPaths>
+
 #include <exception>
 
 int main(int argc, char *argv[])
@@ -51,6 +52,14 @@ int main(int argc, char *argv[])
         MainSettings w;
         w.show();
         return a.exec();
+    }
+    catch(const FFMPEG::runtimeException & err)
+    {
+        auto str = QString("%1 failed, code: %2, error: %3").arg(err.func).arg(err.code).arg(FFMPEG::errorString(err.code));
+        qWarning() << str;
+#ifdef BOOST_STACKTRACE_USE
+        qWarning() << "stacktrace: " << err.trace.c_str();
+#endif
     }
     catch(const std::exception & err)
     {

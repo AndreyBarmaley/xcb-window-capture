@@ -27,6 +27,7 @@
 #include <QPixmap>
 #include <QPainter>
 #include <QProcess>
+#include <QKeyEvent>
 #include <QByteArray>
 #include <QFontDialog>
 #include <QFileDialog>
@@ -66,6 +67,7 @@ MainSettings::MainSettings(QWidget* parent) :
                                    "<p>Source code: <a href='%2'>%2</a></p>"
                                    "<p>Copyright © 2022 by Andrey Afletdinov <public.irkutsk@gmail.com></p>").arg(version).arg(github));
 
+    ui->systemInfo->setTextInteractionFlags(Qt::TextSelectableByMouse);
     ui->systemInfo->setText(QString("<center>FFMpeg info: avdevice-%1, avformat-%2</center>").arg(AV_STRINGIFY(LIBAVDEVICE_VERSION)).arg(AV_STRINGIFY(LIBAVFORMAT_VERSION)));
 
     for(auto type : { FFMPEG::H264Preset::UltraFast, FFMPEG::H264Preset::SuperFast, FFMPEG::H264Preset::VeryFast, FFMPEG::H264Preset::Faster, 
@@ -115,6 +117,14 @@ void MainSettings::exitProgram(void)
 {
     hide();
     close();
+}
+
+void MainSettings::keyPressEvent(QKeyEvent* event)
+{
+    if(event->key() == Qt::Key_Escape)
+    {
+        if(isVisible()) hide();
+    }
 }
 
 void MainSettings::showEvent(QShowEvent* event)
@@ -270,11 +280,16 @@ void MainSettings::selectWindows(void)
 
 bool MainSettings::startRecord(void)
 {
-    if(isVisible())
-        hide();
-
-    if(windowId != XCB_WINDOW_NONE)
+    if(windowId == XCB_WINDOW_NONE)
     {
+        if(isHidden())
+            show();
+    }
+    else
+    {
+        if(isVisible())
+            hide();
+
         bool error = false;
 
         auto h264Preset = static_cast<FFMPEG::H264Preset::type>(ui->comboBoxH264Preset->currentData().toInt());
@@ -287,6 +302,16 @@ bool MainSettings::startRecord(void)
             bool cursor = ui->checkBoxShowCursor->isChecked();
             bool audio = true;
             encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, xcb, format.toStdString(), cursor, audio, this));
+        }
+        catch(const FFMPEG::runtimeException & err)
+        {
+            auto str = QString("%1 failed, code: %2, error: %3").arg(err.func).arg(err.code).arg(FFMPEG::errorString(err.code));
+            qWarning() << str;
+#ifdef BOOST_STACKTRACE_USE
+            qWarning() << "stacktrace: " << err.trace.c_str();
+#endif
+            error = true;
+            trayIcon->setToolTip(str);
         }
         catch(const std::runtime_error & err)
         {
@@ -345,7 +370,7 @@ void MainSettings::stopRecord(void)
 
 /* FFmpegEncoderPool */
 FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool audio, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate, false), windowId(win), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio)
+    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate), windowId(win), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio)
 {
     time_t raw;
     std::time(& raw);
@@ -373,7 +398,7 @@ FFmpegEncoderPool::~FFmpegEncoderPool()
 
 void FFmpegEncoderPool::run(void)
 {
-    auto durationMS = std::chrono::milliseconds(1000/fps);
+    auto durationMS = std::chrono::milliseconds(1000 / video.fps);
     auto point = std::chrono::steady_clock::now();
     auto winsz = xcb->getWindowSize(windowId);
 
@@ -381,9 +406,19 @@ void FFmpegEncoderPool::run(void)
     {
         FFMPEG::H264Encoder::startRecord(outputPath.get(), winsz.width(), winsz.height());
     }
+    catch(const FFMPEG::runtimeException & err)
+    {
+        auto str = QString("%1 failed, code: %2, error: %3").arg(err.func).arg(err.code).arg(FFMPEG::errorString(err.code));
+        qWarning() << str;
+#ifdef BOOST_STACKTRACE_USE
+        qWarning() << "stacktrace: " << err.trace.c_str();
+#endif
+        emit errorNotify(str);
+    }
     catch(const std::runtime_error & err)
     {
-        emit errorNotify(QString(err.what()));
+        qWarning() << err.what();
+        emit errorNotify(err.what());
         return;
     }
 
@@ -416,7 +451,8 @@ void FFmpegEncoderPool::run(void)
                 break;
             }
 
-            if(winsz.width() != getFrameWidth() || winsz.height() != getFrameHeight())
+            if(winsz.width() != video.frameWidth ||
+                winsz.height() != video.frameHeight)
             {
                 qWarning() << "window size changed";
                 emit restartNotify();
@@ -424,6 +460,13 @@ void FFmpegEncoderPool::run(void)
             }
 
             auto & reply = pair.first;
+
+            if(! reply->data() || 0 == reply->size())
+            {
+                emit errorNotify(QString("empty image data"));
+                break;
+            }
+
             int bytesPerLine = reply->size() / winsz.height();
 
             // sync cursor
@@ -445,21 +488,35 @@ void FFmpegEncoderPool::run(void)
                         uint32_t* ptr = xcb_xfixes_get_cursor_image_cursor_image(reply.get());
                         int len = xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
 
-                        QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
-                        QPoint cursorPosition(reply->x, reply->y);
-                        QPainter painter(& windowImage);
-                        painter.drawImage(cursorPosition - geometry.topLeft(), cursorImage);
+                        if(ptr && 0 < len)
+                        {
+                            QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
+                            QPoint cursorPosition(reply->x, reply->y);
+                            QPainter painter(& windowImage);
+                            painter.drawImage(cursorPosition - geometry.topLeft(), cursorImage);
+                        }
                     }
                 }
             }
 
             try
             {
-                FFMPEG::H264Encoder::pushFrame(reply->data(), bytesPerLine, winsz.height());
+                video.pushFrame(reply->data(), bytesPerLine, winsz.height());
+            }
+            catch(const FFMPEG::runtimeException & err)
+            {
+                auto str = QString("%1 failed, code: %2, error: %3").arg(err.func).arg(err.code).arg(FFMPEG::errorString(err.code));
+                qWarning() << str;
+#ifdef BOOST_STACKTRACE_USE
+                qWarning() << "stacktrace: " << err.trace.c_str();
+#endif
+                emit errorNotify(str);
+                shutdown = true;
             }
             catch(const std::runtime_error & err)
             {
-                emit errorNotify(QString(err.what()));
+                qWarning() << err.what();
+                emit errorNotify(err.what());
                 shutdown = true;
             }
         }

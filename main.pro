@@ -30,7 +30,7 @@ HEADERS += mainsettings.h xcbwrapper.h ffmpegencoder.h
 
 FORMS += mainsettings.ui
 INCLUDEPATH += /usr/include/ffmpeg
-LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lavutil
+LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lswresample -lavutil
 
 DISTFILES +=
 RESOURCES += resources.qrc
