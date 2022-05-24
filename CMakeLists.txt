@@ -8,13 +8,14 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -Wall -Wno-sign-comp
 include(FindPkgConfig)
 set(CMAKE_FIND_FRAMEWORK LAST)
 
-project(XcbWindowCapture VERSION 20220515.1)
+project(XcbWindowCapture VERSION 20220523.1)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 find_package(Qt5 COMPONENTS Core Gui Widgets REQUIRED)
+find_package(Threads REQUIRED)
 
 pkg_search_module(XCB REQUIRED xcb)
 pkg_search_module(XCB_SHM REQUIRED xcb-shm)
@@ -25,8 +26,9 @@ pkg_search_module(AVCODEC REQUIRED libavcodec)
 pkg_search_module(AVSWSCALE REQUIRED libswscale)
 pkg_search_module(AVSWRESAMPLE REQUIRED libswresample)
 pkg_search_module(AVUTIL REQUIRED libavutil)
+pkg_search_module(PULSE REQUIRED libpulse)
 
-add_executable(XcbWindowCapture main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp resources.qrc)
+add_executable(XcbWindowCapture main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp pulseaudio.cpp resources.qrc)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(Boost_USE_STATIC_LIBS OFF)
@@ -47,10 +49,16 @@ endif()
 
 target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS} ${XCB_XFIXES_CFLAGS} )
 target_compile_options(XcbWindowCapture PUBLIC ${AVDEVICE_CFLAGS} ${AVFORMAT_CFLAGS} ${AVCODEC_CFLAGS} ${AVSWSCALE_CFLAGS} ${AVSWRESAMPLE_CFLAGS} ${AVUTIL_CFLAGS})
+target_compile_options(XcbWindowCapture PUBLIC ${PULSE_CFLAGS})
+
+target_link_options(XcbWindowCapture PUBLIC  ${XCB_LDFLAGS})
 target_link_options(XcbWindowCapture PUBLIC ${AVDEVICE_LDFLAGS} ${AVFORMAT_LDFLAGS} ${AVCODEC_LDFLAGS} ${AVSWSCALE_LDFLAGS} ${AVSWRESAMPLE_LDFLAGS} ${AVUTIL_LDFLAGS})
+target_link_options(XcbWindowCapture PUBLIC  ${PULSE_LDFLAGS})
 
 target_link_libraries(XcbWindowCapture Qt5::Core Qt5::Gui Qt5::Widgets)
 target_link_libraries(XcbWindowCapture ${XCB_LIBRARIES} ${XCB_SHM_LIBRARIES} ${XCB_XFIXES_LIBRARIES})
 target_link_libraries(XcbWindowCapture ${AVDEVICE_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVSWSCALE_LIBRARIES} ${AVSWRESAMPLE_LIBRARIES} ${AVUTIL_LIBRARIES})
+target_link_libraries(XcbWindowCapture ${PULSE_LIBRARIES})
+target_link_libraries(XcbWindowCapture Threads::Threads)
 
 set_target_properties(XcbWindowCapture PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})

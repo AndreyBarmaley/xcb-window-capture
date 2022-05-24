@@ -25,6 +25,7 @@
 #include <QMenu>
 #include <QImage>
 #include <QPixmap>
+#include <QRegExp>
 #include <QPainter>
 #include <QProcess>
 #include <QKeyEvent>
@@ -78,6 +79,9 @@ MainSettings::MainSettings(QWidget* parent) :
     ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(FFMPEG::H264Preset::Medium));
     ui->checkBoxShowCursor->setChecked(true);
     ui->pushButtonStart->setDisabled(true);
+
+    ui->lineEditRegion->setReadOnly(true);
+    ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
 
     configLoad();
 
@@ -219,7 +223,7 @@ void MainSettings::updatePreviewLabel(quint32 win)
     if(win != XCB_WINDOW_NONE)
     {
         auto winsz = xcb->getWindowSize(win);
-        auto pair = xcb->getWindowRegion(win, QRect(0, 0, winsz.width(), winsz.height()));
+        auto pair = xcb->getWindowRegion(win, QRect(QPoint(0, 0), winsz));
 
         if(pair.first)
         {
@@ -239,6 +243,9 @@ void MainSettings::updatePreviewLabel(quint32 win)
 
             ui->labelPreview->setScaledContents(true);
             ui->labelPreview->setPixmap(QPixmap::fromImage(image));
+
+            ui->lineEditRegion->setReadOnly(false);
+            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
 
             windowId = win;
             actionStart->setEnabled(true);
@@ -291,6 +298,23 @@ bool MainSettings::startRecord(void)
             hide();
 
         bool error = false;
+        QRect region;
+
+        if(auto val = static_cast<const QRegExpValidator*>(ui->lineEditRegion->validator()))
+        {
+            const QRegExp & rx = val->regExp();
+            if(0 == rx.indexIn(ui->lineEditRegion->text()))
+            {
+                region.setX(rx.cap(3).toInt());
+                region.setY(rx.cap(4).toInt());
+                region.setWidth(rx.cap(1).toInt());
+                region.setHeight(rx.cap(2).toInt());
+            }
+            else
+            {
+                qWarning() << "incorrect region pattern:" << ui->lineEditRegion->text();
+            }
+        }
 
         auto h264Preset = static_cast<FFMPEG::H264Preset::type>(ui->comboBoxH264Preset->currentData().toInt());
         int bitrate = ui->lineEditBitRate->text().toInt();
@@ -301,7 +325,10 @@ bool MainSettings::startRecord(void)
             auto format = ui->lineEditOutputFile->text();
             bool cursor = ui->checkBoxShowCursor->isChecked();
             bool audio = true;
-            encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, xcb, format.toStdString(), cursor, audio, this));
+            bool focused = ui->checkBoxFocused->isChecked();
+            if(focused)
+                trayIcon->setIcon(QPixmap(QString(":/icons/streamb")));
+            encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, region, xcb, format.toStdString(), cursor, audio, focused, this));
         }
         catch(const FFMPEG::runtimeException & err)
         {
@@ -322,19 +349,24 @@ bool MainSettings::startRecord(void)
 
         if(! error)
         {
+            connect(encoder.get(), SIGNAL(startedNotify(quint32)), this, SLOT(startedRecord(quint32)));
             connect(encoder.get(), SIGNAL(shutdownNotify()), this, SLOT(exitProgram()));
             connect(encoder.get(), SIGNAL(errorNotify(QString)), this, SLOT(stopRecord(QString)));
             connect(encoder.get(), SIGNAL(restartNotify()), this, SLOT(restartRecord()));
             actionStart->setEnabled(false);
             actionStop->setEnabled(true);
-            trayIcon->setIcon(QPixmap(QString(":/icons/streamg")));
-            trayIcon->setToolTip(QString("capture window id: %1").arg(windowId));
             encoder->start();
             return true;
         }
     }
 
     return false;
+}
+
+void MainSettings::startedRecord(quint32 wid)
+{
+    trayIcon->setIcon(QPixmap(QString(":/icons/streamg")));
+    trayIcon->setToolTip(QString("capture window id: %1").arg(wid));
 }
 
 void MainSettings::restartRecord(void)
@@ -348,9 +380,12 @@ void MainSettings::stopRecord(QString error)
     windowId = XCB_WINDOW_NONE;
     ui->lineEditWindowDescription->clear();
     ui->labelPreview->clear();
+    ui->lineEditRegion->clear();
+    ui->lineEditRegion->setReadOnly(true);
     actionStart->setDisabled(true);
     ui->pushButtonStart->setDisabled(true);
 
+    trayIcon->setIcon(QPixmap(QString(":/icons/streamr")));
     trayIcon->setToolTip(QString("error: %1").arg(error));
 
     stopRecord();
@@ -369,8 +404,8 @@ void MainSettings::stopRecord(void)
 }
 
 /* FFmpegEncoderPool */
-FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool audio, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate), windowId(win), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio)
+FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, const QRect & region, std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool audio, bool focused, QObject* obj)
+    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio), startFocused(focused)
 {
     time_t raw;
     std::time(& raw);
@@ -399,12 +434,41 @@ FFmpegEncoderPool::~FFmpegEncoderPool()
 void FFmpegEncoderPool::run(void)
 {
     auto durationMS = std::chrono::milliseconds(1000 / video.fps);
-    auto point = std::chrono::steady_clock::now();
     auto winsz = xcb->getWindowSize(windowId);
+
+    windowRegion = QRect(QPoint(0, 0), winsz).intersected(windowRegion);
+
+    auto now = std::chrono::steady_clock::now();
+    auto point = now;
+
+    if(startFocused)
+    {
+        if(windowId != xcb->getActiveWindow())
+        {
+            qWarning() << "wait active window id: " << windowId;
+        }
+
+        while(true)
+        {
+            if(windowId == xcb->getActiveWindow())
+                break;
+
+            now = std::chrono::steady_clock::now();
+            auto timeSec = std::chrono::duration_cast<std::chrono::seconds>(now - point);
+
+            if(timeSec >= std::chrono::seconds(10))
+            {
+                emit errorNotify("active window timeout");
+                return;
+            }
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
 
     try
     {
-        FFMPEG::H264Encoder::startRecord(outputPath.get(), winsz.width(), winsz.height());
+        FFMPEG::H264Encoder::startRecord(outputPath.get(), windowRegion.width(), windowRegion.height());
     }
     catch(const FFMPEG::runtimeException & err)
     {
@@ -422,6 +486,8 @@ void FFmpegEncoderPool::run(void)
         return;
     }
 
+    emit startedNotify(windowId);
+
     // record loop
     while(true)
     {
@@ -435,7 +501,7 @@ void FFmpegEncoderPool::run(void)
             break;
         }
 
-        auto now = std::chrono::steady_clock::now();
+        now = std::chrono::steady_clock::now();
         auto timeMS = std::chrono::duration_cast<std::chrono::milliseconds>(now - point);
 
         if(timeMS >= durationMS)
@@ -443,36 +509,35 @@ void FFmpegEncoderPool::run(void)
             point = now;
 
             auto winsz = xcb->getWindowSize(windowId);
-            auto pair = xcb->getWindowRegion(windowId, QRect(0, 0, winsz.width(), winsz.height()));
 
-            if(! pair.first)
-            {
-                emit errorNotify(QString("xcb getWindowRegion failed"));
-                break;
-            }
-
-            if(winsz.width() != video.frameWidth ||
-                winsz.height() != video.frameHeight)
+            // check window size (not changed)
+            if(! QRect(QPoint(0, 0), winsz).contains(windowRegion))
             {
                 qWarning() << "window size changed";
                 emit restartNotify();
                 break;
             }
 
-            auto & reply = pair.first;
-
-            if(! reply->data() || 0 == reply->size())
+            auto pair = xcb->getWindowRegion(windowId, windowRegion);
+            if(! pair.first)
             {
-                emit errorNotify(QString("empty image data"));
+                emit errorNotify("xcb getWindowRegion failed");
                 break;
             }
 
-            int bytesPerLine = reply->size() / winsz.height();
+            auto & reply = pair.first;
+            if(! reply->data() || 0 == reply->size())
+            {
+                emit errorNotify("empty image data");
+                break;
+            }
+
+            int bytesPerLine = reply->size() / windowRegion.height();
 
             // sync cursor
             if(showCursor)
             {
-                QImage windowImage(reply->data(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888);
+                QImage windowImage(reply->data(), windowRegion.width(), windowRegion.height(), bytesPerLine, QImage::Format_RGBX8888);
                 auto replyCursor = xcb->getReplyFunc2(xcb_xfixes_get_cursor_image, xcb->connection());
 
                 if(auto err = replyCursor.error())
@@ -482,8 +547,15 @@ void FFmpegEncoderPool::run(void)
                 else
                 if(auto reply = replyCursor.reply())
                 {
-                    auto geometry = xcb->getWindowGeometry(windowId);
-                    if(geometry.contains(reply->x, reply->y))
+                    auto absRegion = xcb->getWindowGeometry(windowId);
+
+                    if(windowRegion.size() != absRegion.size())
+                        absRegion.setSize(windowRegion.size());
+
+                    if(windowRegion.topLeft().isNull())
+                        absRegion.setTopLeft(absRegion.topLeft() + windowRegion.topLeft());
+
+                    if(absRegion.contains(QRect(reply->x, reply->y, reply->width, reply->height)))
                     {
                         uint32_t* ptr = xcb_xfixes_get_cursor_image_cursor_image(reply.get());
                         int len = xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
@@ -493,7 +565,7 @@ void FFmpegEncoderPool::run(void)
                             QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
                             QPoint cursorPosition(reply->x, reply->y);
                             QPainter painter(& windowImage);
-                            painter.drawImage(cursorPosition - geometry.topLeft(), cursorImage);
+                            painter.drawImage(cursorPosition - absRegion.topLeft(), cursorImage);
                         }
                     }
                 }
@@ -501,7 +573,7 @@ void FFmpegEncoderPool::run(void)
 
             try
             {
-                video.pushFrame(reply->data(), bytesPerLine, winsz.height());
+                video.pushFrame(reply->data(), bytesPerLine, windowRegion.height());
             }
             catch(const FFMPEG::runtimeException & err)
             {

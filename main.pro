@@ -25,12 +25,12 @@ DEFINES += QT_DEPRECATED_WARNINGS
 #DEFINES += QT_DISABLE_DEPRECATED_BEFORE=0x060000    # disables all the APIs deprecated before Qt 6.0.0
 
 
-SOURCES += main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp
-HEADERS += mainsettings.h xcbwrapper.h ffmpegencoder.h
+SOURCES += main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp pulseaudio.cpp
+HEADERS += mainsettings.h xcbwrapper.h ffmpegencoder.h pulseaudio.h
 
 FORMS += mainsettings.ui
 INCLUDEPATH += /usr/include/ffmpeg
-LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lswresample -lavutil
+LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lswresample -lavutil -lpulse
 
 DISTFILES +=
 RESOURCES += resources.qrc

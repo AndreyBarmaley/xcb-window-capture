@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220520
+#define VERSION 20220523
 
 #include <QList>
 #include <QObject>
@@ -52,20 +52,24 @@ class FFmpegEncoderPool : public QThread, public FFMPEG::H264Encoder
     Q_OBJECT
 
     xcb_window_t windowId;
+    QRect windowRegion;
     std::shared_ptr<XcbConnection> xcb;
     std::atomic<bool> shutdown;
     std::unique_ptr<char[]> outputPath;
     bool showCursor;
     bool audioStream;
+    bool startFocused;
 
 public:
-    FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, std::shared_ptr<XcbConnection>, const std::string &, bool, bool, QObject*);
+    FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, const QRect &,
+            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, bool, QObject*);
     ~FFmpegEncoderPool();
 
 protected:
     void run(void) override;
 
 signals:
+    void startedNotify(quint32);
     void restartNotify(void);
     void shutdownNotify(void);
     void errorNotify(QString);
@@ -103,6 +107,7 @@ protected:
 private slots:
     void selectWindows(void);
     bool startRecord(void);
+    void startedRecord(quint32);
     void stopRecord(void);
     void stopRecord(QString);
     void restartRecord(void);

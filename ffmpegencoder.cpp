@@ -95,7 +95,7 @@ namespace FFMPEG
 
         int ret = avcodec_parameters_to_context(avcctx.get(), codecpar);
         if(0 > ret)
-            throw runtimeException("avcodec_parameters_to_context", ret);
+            throw FFMPEG::runtimeException("avcodec_parameters_to_context", ret);
 
         avcctx->time_base = (AVRational){1, fps};
         avcctx->framerate = (AVRational){fps, 1};
@@ -121,11 +121,11 @@ namespace FFMPEG
 
         int ret = avcodec_parameters_from_context(stream->codecpar, avcctx.get());
         if(0 > ret)
-            throw runtimeException("avcodec_parameters_from_context", ret);
+            throw FFMPEG::runtimeException("avcodec_parameters_from_context", ret);
 
         ret = avcodec_open2(avcctx.get(), codec, nullptr);
         if(0 > ret)
-            throw runtimeException("avcodec_open2", ret);
+            throw FFMPEG::runtimeException("avcodec_open2", ret);
 
         frame.reset(av_frame_alloc());
         if(! frame)
@@ -138,7 +138,7 @@ namespace FFMPEG
 
         ret = av_frame_get_buffer(frame.get(), 32);
         if(0 > ret)
-            throw runtimeException("av_frame_get_buffer", ret);
+            throw FFMPEG::runtimeException("av_frame_get_buffer", ret);
 
 #if (__BYTE_ORDER__==__ORDER_LITTLE_ENDIAN__)
         AVPixelFormat avPixelFormat = AV_PIX_FMT_BGR0;
@@ -162,7 +162,7 @@ namespace FFMPEG
 
         int ret = avcodec_send_frame(avcctx.get(), framePtr);
         if(0 > ret)
-            throw runtimeException("avcodec_send_frame", ret);
+            throw FFMPEG::runtimeException("avcodec_send_frame", ret);
 
         while(true)
         {
@@ -173,7 +173,7 @@ namespace FFMPEG
                 break;
 
             if(0 > ret)
-                throw runtimeException("avcodec_receive_packet", ret);
+                throw FFMPEG::runtimeException("avcodec_receive_packet", ret);
 
             av_packet_rescale_ts(pkt.get(), avcctx->time_base, stream->time_base);
             pkt->stream_index = stream->index;
@@ -190,7 +190,7 @@ namespace FFMPEG
 
             ret = av_interleaved_write_frame(avfctx, pkt.get());
             if(0 > ret)
-                throw runtimeException("av_interleaved_write_frame", ret);
+                throw FFMPEG::runtimeException("av_interleaved_write_frame", ret);
         }
     }
 
@@ -241,7 +241,7 @@ namespace FFMPEG
     {
         int ret = avcodec_open2(avcctx.get(), codec, nullptr);
         if(0 > ret)
-            throw runtimeException("avcodec_open2", ret);
+            throw FFMPEG::runtimeException("avcodec_open2", ret);
 
         auto nb_samples = avcctx->frame_size;
 
@@ -257,11 +257,11 @@ namespace FFMPEG
 
         ret = av_frame_get_buffer(frame.get(), 0);
         if(0 > ret)
-            throw runtimeException("av_frame_get_buffer", ret);
+            throw FFMPEG::runtimeException("av_frame_get_buffer", ret);
 
         ret = avcodec_parameters_from_context(stream->codecpar, avcctx.get());
         if(0 > ret)
-            throw runtimeException("avcodec_parameters_from_context", ret);
+            throw FFMPEG::runtimeException("avcodec_parameters_from_context", ret);
 
         swrctx.reset(swr_alloc());
         if(! swrctx)
@@ -276,7 +276,9 @@ namespace FFMPEG
 
         ret = swr_init(swrctx.get());
         if(0 > ret)
-            throw runtimeException("swr_init", ret);
+            throw FFMPEG::runtimeException("swr_init", ret);
+
+        pulse.reset(new PulseAudio::Context("XcbWindowCapture"));
     }
 
     /* H264Encoder */
@@ -301,14 +303,13 @@ namespace FFMPEG
         int ret = avformat_alloc_output_context2(& avfctx2, oformat, nullptr, nullptr);
 
         if(0 > ret)
-            throw runtimeException("avformat_alloc_output_context2", ret);
+            throw FFMPEG::runtimeException("avformat_alloc_output_context2", ret);
 
         avfctx.reset(avfctx2);
 
         video.init(avfctx2, h264Preset, videoBitrate);
         //audio.init(avfctx2, 64000);
     }
-
 
     H264Encoder::~H264Encoder()
     {
@@ -323,11 +324,11 @@ namespace FFMPEG
 
         int ret = avio_open(& avfctx->pb, filename, AVIO_FLAG_WRITE);
         if(0 > ret)
-            throw runtimeException("avio_open", ret);
+            throw FFMPEG::runtimeException("avio_open", ret);
 
         ret = avformat_write_header(avfctx.get(), nullptr);
         if(0 > ret)
-            throw runtimeException("avformat_write_header", ret);
+            throw FFMPEG::runtimeException("avformat_write_header", ret);
 
         captureStarted = true;
     }

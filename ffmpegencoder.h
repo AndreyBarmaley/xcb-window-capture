@@ -46,6 +46,8 @@ extern "C" {
 #include <sstream>
 #endif
 
+#include "pulseaudio.h"
+
 namespace FFMPEG
 {
     struct AVCodecContextDeleter
@@ -160,6 +162,8 @@ namespace FFMPEG
         std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx{nullptr, AVCodecContextDeleter()};
         std::unique_ptr<SwrContext, SwrContextDeleter> swrctx{nullptr, SwrContextDeleter()};
         std::unique_ptr<AVFrame, AVFrameDeleter> frame;
+
+        std::unique_ptr<PulseAudio::Context> pulse;
 
         void init(AVFormatContext*, int bitrate);
         void start(void);
