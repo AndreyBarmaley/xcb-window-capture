@@ -7,4 +7,5 @@ Small tray utility for record X11 window to h264 video
  - xcb libs
 
 ### screenshots
-![screenshot](https://user-images.githubusercontent.com/8620726/168413451-14ca019f-86fd-4dce-b532-912f537386ee.png)
+![screenshot1](https://user-images.githubusercontent.com/8620726/170237290-e22fdc97-324f-4100-bd41-b4cd6faadb94.png)
+![screenshot2](https://user-images.githubusercontent.com/8620726/170237293-225ee028-aee0-45ef-8198-b86fb0c6a95c.png)
