@@ -31,6 +31,10 @@ namespace PulseAudio
 {
     Context::Context(const char* appname)
     {
+        spec.format = PA_SAMPLE_S16LE;
+        spec.rate = 44100;
+        spec.channels = 2;
+
         loop.reset(pa_mainloop_new());
         if(! loop)
             throw std::runtime_error("pa_mainloop_new failed");
@@ -104,6 +108,7 @@ namespace PulseAudio
             if(streamData && streamBytes && context)
             {
                 const std::lock_guard<std::mutex> lock(context->dataLock);
+
                 auto begin = static_cast<const uint8_t*>(streamData);
                 context->dataBuf.emplace_back(begin, begin + streamBytes);
             }
@@ -115,12 +120,9 @@ namespace PulseAudio
 
     void Context::serverInfoCallback(pa_context* ctx, const pa_server_info* info, void* userData)
     {
-        pa_sample_spec spec;
-        spec.format = PA_SAMPLE_S16LE;
-        spec.rate = 44100;
-        spec.channels = 1;
+        auto context = static_cast<Context*>(userData);
 
-        pa_stream* stream = pa_stream_new(ctx, "capture monitor", &spec, nullptr);
+        pa_stream* stream = pa_stream_new(ctx, "capture monitor", & context->spec, nullptr);
 
         pa_stream_set_state_callback(stream, & streamNotifyCallback, userData);
         pa_stream_set_read_callback(stream, & streamReadCallback, userData);

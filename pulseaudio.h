@@ -55,6 +55,8 @@ namespace PulseAudio
     class Context
     {
     protected:
+        pa_sample_spec spec;
+
         std::unique_ptr<pa_mainloop, MainLoopDeleter> loop;
         std::unique_ptr<pa_context, ContextDeleter> ctx;
 
@@ -73,6 +75,10 @@ namespace PulseAudio
         ~Context();
 
         std::vector<uint8_t> popDataBuf(void);
+
+        int format(void) const { return spec.format; }
+        int rate(void) const { return spec.rate; }
+        int channels(void) const { return spec.channels; }
     };
 }
 

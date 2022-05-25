@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220523
+#define VERSION 20220525
 
 #include <QList>
 #include <QObject>
@@ -57,12 +57,11 @@ class FFmpegEncoderPool : public QThread, public FFMPEG::H264Encoder
     std::atomic<bool> shutdown;
     std::unique_ptr<char[]> outputPath;
     bool showCursor;
-    bool audioStream;
     bool startFocused;
 
 public:
     FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, const QRect &,
-            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, bool, QObject*);
+            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, const AudioPlugin &, int, QObject*);
     ~FFmpegEncoderPool();
 
 protected:
@@ -81,6 +80,7 @@ class MainSettings : public QWidget
     Q_OBJECT
 
     std::shared_ptr<XcbConnection> xcb;
+    std::unique_ptr<PulseAudio::Context> pulse;
     std::unique_ptr<FFmpegEncoderPool> encoder;
 
     Ui::MainSettings* ui;

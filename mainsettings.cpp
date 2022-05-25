@@ -173,10 +173,15 @@ void MainSettings::configSave(void)
     ds << pos();
 
     ds << ui->comboBoxH264Preset->currentData().toInt();
-    ds << ui->lineEditBitRate->text().toInt();
+    ds << ui->lineEditVideoBitrate->text().toInt();
     ds << ui->lineEditOutputFile->text();
 
     ds << ui->checkBoxShowCursor->isChecked();
+
+    // 20220525
+    ds << ui->checkBoxFocused->isChecked();
+    ds << ui->lineEditAudioBitrate->text().toInt();
+    ds << ui->comboBoxAudioPlugin->currentIndex();
 }
 
 void MainSettings::configLoad(void)
@@ -207,7 +212,7 @@ void MainSettings::configLoad(void)
     ds >> h264Preset >> h264BitRate;
 
     ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(h264Preset));
-    ui->lineEditBitRate->setText(QString::number(h264BitRate));
+    ui->lineEditVideoBitrate->setText(QString::number(h264BitRate));
 
     QString outputPath;
     ds >> outputPath;
@@ -216,6 +221,22 @@ void MainSettings::configLoad(void)
     bool showCursor;
     ds >> showCursor;
     ui->checkBoxShowCursor->setChecked(showCursor);
+
+    if(20220524 < version)
+    {
+        bool renderFocused;
+        ds >> renderFocused;
+
+        ui->checkBoxFocused->setChecked(renderFocused);
+
+        int audioBitrate;
+        ds >> audioBitrate;
+        ui->lineEditAudioBitrate->setText(QString::number(audioBitrate));
+
+        int audioPlugin;
+        ds >> audioPlugin;
+        ui->comboBoxAudioPlugin->setCurrentIndex(audioPlugin);
+    }
 }
 
 void MainSettings::updatePreviewLabel(quint32 win)
@@ -317,18 +338,25 @@ bool MainSettings::startRecord(void)
         }
 
         auto h264Preset = static_cast<FFMPEG::H264Preset::type>(ui->comboBoxH264Preset->currentData().toInt());
-        int bitrate = ui->lineEditBitRate->text().toInt();
-        if(bitrate < 0) bitrate = 1024;
+        int videoBitrate = ui->lineEditVideoBitrate->text().toInt();
+        if(videoBitrate < 0) videoBitrate = 1024;
+        int audioBitrate = ui->lineEditAudioBitrate->text().toInt();
+        if(audioBitrate < 0) audioBitrate = 64;
+
+        auto fileFormat = ui->lineEditOutputFile->text();
+        bool renderCursor = ui->checkBoxShowCursor->isChecked();
+        bool startFocused = ui->checkBoxFocused->isChecked();
+
+        AudioPlugin audioPlugin = AudioPlugin::None;
+        if(ui->comboBoxAudioPlugin->currentText() == "pulseaudio")
+            audioPlugin = AudioPlugin::PulseAudio;
+
+        if(startFocused)
+            trayIcon->setIcon(QPixmap(QString(":/icons/streamb")));
 
         try
         {
-            auto format = ui->lineEditOutputFile->text();
-            bool cursor = ui->checkBoxShowCursor->isChecked();
-            bool audio = true;
-            bool focused = ui->checkBoxFocused->isChecked();
-            if(focused)
-                trayIcon->setIcon(QPixmap(QString(":/icons/streamb")));
-            encoder.reset(new FFmpegEncoderPool(h264Preset, bitrate, windowId, region, xcb, format.toStdString(), cursor, audio, focused, this));
+            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, region, xcb, fileFormat.toStdString(), renderCursor, startFocused, audioPlugin, audioBitrate, this));
         }
         catch(const FFMPEG::runtimeException & err)
         {
@@ -404,8 +432,9 @@ void MainSettings::stopRecord(void)
 }
 
 /* FFmpegEncoderPool */
-FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int bitrate, xcb_window_t win, const QRect & region, std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool audio, bool focused, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, bitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), audioStream(audio), startFocused(focused)
+FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int vbitrate, xcb_window_t win, const QRect & region,
+    std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool focused, const AudioPlugin & audioPlugin, int audioBitrate, QObject* obj)
+    : QThread(obj), FFMPEG::H264Encoder(preset, vbitrate, audioPlugin, audioBitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), startFocused(focused)
 {
     time_t raw;
     std::time(& raw);
@@ -415,9 +444,6 @@ FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, in
 
     struct tm* timeinfo = std::localtime(&raw);
     std::strftime(outputPath.get(), len - 1, format.c_str(), timeinfo);
-
-    showCursor = cursor;
-    audioStream = audio;
 }
 
 FFmpegEncoderPool::~FFmpegEncoderPool()
@@ -573,7 +599,7 @@ void FFmpegEncoderPool::run(void)
 
             try
             {
-                video.pushFrame(reply->data(), bytesPerLine, windowRegion.height());
+                encodeFrame(reply->data(), bytesPerLine, windowRegion.height());
             }
             catch(const FFMPEG::runtimeException & err)
             {

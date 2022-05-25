@@ -48,8 +48,12 @@ extern "C" {
 
 #include "pulseaudio.h"
 
+enum class AudioPlugin { None, PulseAudio };
+
 namespace FFMPEG
 {
+    AVSampleFormat avFormatFromPulse(int pulse);
+
     struct AVCodecContextDeleter
     {
         void operator()(AVCodecContext* ctx)
@@ -104,31 +108,6 @@ namespace FFMPEG
         const char* name(const type &);
     };
 
-    struct VideoEncoder
-    {
-#if LIBAVFORMAT_VERSION_MAJOR < 59
-        AVCodec* codec = nullptr;
-#else
-        const AVCodec* codec = nullptr;
-#endif
-        AVStream* stream = nullptr;
-        AVFormatContext* avfctx = nullptr;
-
-        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx;
-        std::unique_ptr<SwsContext, SwsContextDeleter> swsctx;
-        std::unique_ptr<AVFrame, AVFrameDeleter> frame;
-
-        int fps = 25;
-        int frameCounter = 0;
-        int frameWidth = 0;
-        int frameHeight = 0;
-
-        void init(AVFormatContext*, const H264Preset::type & h264Preset, int bitrate);
-        void start(int width, int height);
-        void sendFrame(bool withFrame);
-        void pushFrame(const uint8_t* pixels, int pitch, int height);
-    };
-
     struct runtimeException
     {
         const char* func;
@@ -149,24 +128,80 @@ namespace FFMPEG
 
     QString errorString(int);
 
-    struct AudioEncoder
+    struct AVFrameBase : std::unique_ptr<AVFrame, AVFrameDeleter>
+    {
+        AVFrameBase() {}
+        virtual ~AVFrameBase() {}
+    };
+
+    struct AudioFrame : AVFrameBase
+    {
+        AudioFrame() {}
+
+        void init(const AVCodecContext*);
+        void init(const AVSampleFormat &, int layout, int rate, int samples);
+
+        int  fill(const uint8_t* buf, size_t len, bool);
+    };
+
+    struct VideoFrame : AVFrameBase
+    {
+        VideoFrame() {}
+
+        void init(const AVPixelFormat &, int width, int height);
+    };
+
+    struct EncoderBase
+    {
+        virtual ~EncoderBase() {}
+
+        AVStream* stream = nullptr;
+        AVFormatContext* avfctx = nullptr;
+
+        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx;
+
+        void writeFrame(const AVFrame*);
+    };
+
+    struct VideoEncoder : EncoderBase
     {
 #if LIBAVFORMAT_VERSION_MAJOR < 59
         AVCodec* codec = nullptr;
 #else
         const AVCodec* codec = nullptr;
 #endif
-        AVStream* stream = nullptr;
-        AVFormatContext* avfctx = nullptr;
+        std::unique_ptr<SwsContext, SwsContextDeleter> swsctx;
 
-        std::unique_ptr<AVCodecContext, AVCodecContextDeleter> avcctx{nullptr, AVCodecContextDeleter()};
+        VideoFrame frame;
+
+        int fps = 25;
+        int pts = 0;
+
+        void init(AVFormatContext*, const H264Preset::type & h264Preset, int bitrate);
+        void start(int width, int height);
+
+        void encodeFrame(const uint8_t* pixels, int pitch, int height);
+    };
+
+    struct AudioEncoder : EncoderBase
+    {
+#if LIBAVFORMAT_VERSION_MAJOR < 59
+        AVCodec* codec = nullptr;
+#else
+        const AVCodec* codec = nullptr;
+#endif
         std::unique_ptr<SwrContext, SwrContextDeleter> swrctx{nullptr, SwrContextDeleter()};
-        std::unique_ptr<AVFrame, AVFrameDeleter> frame;
-
         std::unique_ptr<PulseAudio::Context> pulse;
+        std::vector<uint8_t> tail;
 
-        void init(AVFormatContext*, int bitrate);
+        AudioFrame frameSrc, frameDst;
+
+        int pts = 0;
+
+        void init(AVFormatContext*, const AudioPlugin &, int bitrate);
         void start(void);
+
+        bool encodeFrame(void);
     };
 
     class H264Encoder
@@ -180,16 +215,18 @@ namespace FFMPEG
 
 protected:
         VideoEncoder video;
-        AudioEncoder audio;
+        std::unique_ptr<AudioEncoder> audio;
 
         bool captureStarted;
 
     public:
-        H264Encoder(const H264Preset::type &, int bitrate);
+        H264Encoder(const H264Preset::type &, int vbitrate, const AudioPlugin &, int abitrate);
         ~H264Encoder();
 
         void startRecord(const char* filename, int width, int height);
         void stopRecord(void);
+
+        void encodeFrame(const uint8_t* pixels, int pitch, int height);
     };
 }
 
