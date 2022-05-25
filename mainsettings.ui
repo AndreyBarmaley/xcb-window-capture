@@ -62,25 +62,11 @@
       </attribute>
       <layout class="QVBoxLayout" name="verticalLayout_3">
        <item>
-        <widget class="QCheckBox" name="checkBoxShowCursor">
-         <property name="text">
-          <string>render cursor</string>
-         </property>
-        </widget>
-       </item>
-       <item>
-        <widget class="QCheckBox" name="checkBoxFocused">
-         <property name="text">
-          <string>start record after focused window</string>
-         </property>
-        </widget>
-       </item>
-       <item>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
           <widget class="QLabel" name="labelWindow">
            <property name="text">
-            <string>Window:</string>
+            <string>Select window:</string>
            </property>
           </widget>
          </item>
@@ -114,6 +100,20 @@
           </widget>
          </item>
         </layout>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkBoxShowCursor">
+         <property name="text">
+          <string>render cursor</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QCheckBox" name="checkBoxFocused">
+         <property name="text">
+          <string>record only focused window</string>
+         </property>
+        </widget>
        </item>
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_5">
@@ -373,7 +373,7 @@
    <hints>
     <hint type="sourcelabel">
      <x>378</x>
-     <y>167</y>
+     <y>130</y>
     </hint>
     <hint type="destinationlabel">
      <x>400</x>
@@ -385,7 +385,7 @@
    <sender>pushButtonStart</sender>
    <signal>clicked()</signal>
    <receiver>MainSettings</receiver>
-   <slot>startRecord()</slot>
+   <slot>pushButton()</slot>
    <hints>
     <hint type="sourcelabel">
      <x>58</x>
@@ -400,6 +400,6 @@
  </connections>
  <slots>
   <slot>selectWindows()</slot>
-  <slot>startRecord()</slot>
+  <slot>pushButton()</slot>
  </slots>
 </ui>

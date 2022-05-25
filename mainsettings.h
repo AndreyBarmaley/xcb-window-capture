@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220525
+#define VERSION 20220526
 
 #include <QList>
 #include <QObject>
@@ -106,6 +106,7 @@ protected:
 
 private slots:
     void selectWindows(void);
+    void pushButton(void);
     bool startRecord(void);
     void startedRecord(quint32);
     void stopRecord(void);

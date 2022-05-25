@@ -306,6 +306,21 @@ void MainSettings::selectWindows(void)
     }
 }
 
+void MainSettings::pushButton(void)
+{
+    const char* stop = "Stop";
+    const char* start = "Start";
+
+    if(ui->pushButtonStart->text() == QString(stop))
+    {
+        stopRecord();
+        ui->pushButtonStart->setText(start);
+    }
+    else
+    if(startRecord())
+        ui->pushButtonStart->setText("Stop");
+}
+
 bool MainSettings::startRecord(void)
 {
     if(windowId == XCB_WINDOW_NONE)
@@ -386,6 +401,7 @@ bool MainSettings::startRecord(void)
             encoder->start();
             return true;
         }
+
     }
 
     return false;
@@ -526,6 +542,17 @@ void FFmpegEncoderPool::run(void)
             emit shutdownNotify();
             break;
         }
+
+        // window closed
+        if(! xcb->getWindowList().contains(windowId))
+        {
+            emit shutdownNotify();
+            break;
+        }
+
+        // not active, paused
+        if(startFocused && windowId != xcb->getActiveWindow())
+            continue;
 
         now = std::chrono::steady_clock::now();
         auto timeMS = std::chrono::duration_cast<std::chrono::milliseconds>(now - point);
