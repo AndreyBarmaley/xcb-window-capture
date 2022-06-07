@@ -116,6 +116,16 @@
         </widget>
        </item>
        <item>
+        <widget class="QCheckBox" name="checkBoxRemoveWinDecor">
+         <property name="text">
+          <string>remove window decoration</string>
+         </property>
+         <property name="checked">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
         <layout class="QHBoxLayout" name="horizontalLayout_5">
          <item>
           <widget class="QLabel" name="labelRegion">
@@ -125,7 +135,11 @@
           </widget>
          </item>
          <item>
-          <widget class="QLineEdit" name="lineEditRegion"/>
+          <widget class="QLineEdit" name="lineEditRegion">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+          </widget>
          </item>
         </layout>
        </item>
@@ -397,9 +411,26 @@
     </hint>
    </hints>
   </connection>
+  <connection>
+   <sender>checkBoxRemoveWinDecor</sender>
+   <signal>toggled(bool)</signal>
+   <receiver>MainSettings</receiver>
+   <slot>setRemoveWinDecoration(bool)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>199</x>
+     <y>149</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>199</x>
+     <y>182</y>
+    </hint>
+   </hints>
+  </connection>
  </connections>
  <slots>
   <slot>selectWindows()</slot>
   <slot>pushButton()</slot>
+  <slot>setRemoveWinDecoration(bool)</slot>
  </slots>
 </ui>

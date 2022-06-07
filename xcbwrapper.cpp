@@ -477,6 +477,27 @@ QList<xcb_window_t> XcbConnection::getWindowList(void) const
     return res;
 }
 
+WinFrameSize XcbConnection::getWindowFrame(xcb_window_t win) const
+{
+    WinFrameSize res;
+    auto prop = getAtom("_NET_FRAME_EXTENTS");
+
+    // left, right, top, bottom, CARDINAL[4]/32
+    if(auto reply = getPropertyAnyType(win, prop, 0, 16))
+    {
+        if(16 > reply.length())
+            throw std::runtime_error("_NET_FRAME_EXTENTS empty");
+
+        auto vals = reinterpret_cast<uint32_t*>(reply.value());
+        res.left = vals[0];
+        res.right = vals[1];
+        res.top = vals[2];
+        res.bottom = vals[3];
+    }
+
+    return res;
+}
+
 QPair<XcbPixmapInfoReply, QString>
     XcbConnection::getWindowRegion(xcb_window_t win, const QRect & reg, uint32_t planeMask) const
 {

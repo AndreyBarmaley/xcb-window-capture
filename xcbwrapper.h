@@ -173,6 +173,14 @@ public:
     const std::vector<uint8_t> & pixels(void) const { return _pixels; };
 };
 
+struct WinFrameSize
+{
+    uint32_t left = 0;
+    uint32_t right = 0;
+    uint32_t top = 0;
+    uint32_t bottom = 0;
+};
+
 /// XcbConnection
 struct XcbConnection
 {
@@ -203,6 +211,7 @@ public:
     xcb_window_t getActiveWindow(void) const;
     xcb_screen_t* getScreen(void) const;
     QList<xcb_window_t> getWindowList(void) const;
+    WinFrameSize getWindowFrame(xcb_window_t) const;
     QString getAtomName(xcb_atom_t) const;
 
     xcb_connection_t* connection(void) const { return conn.get(); }
