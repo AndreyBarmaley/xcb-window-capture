@@ -411,22 +411,6 @@
     </hint>
    </hints>
   </connection>
-  <connection>
-   <sender>checkBoxRemoveWinDecor</sender>
-   <signal>toggled(bool)</signal>
-   <receiver>MainSettings</receiver>
-   <slot>setRemoveWinDecoration(bool)</slot>
-   <hints>
-    <hint type="sourcelabel">
-     <x>199</x>
-     <y>149</y>
-    </hint>
-    <hint type="destinationlabel">
-     <x>199</x>
-     <y>182</y>
-    </hint>
-   </hints>
-  </connection>
  </connections>
  <slots>
   <slot>selectWindows()</slot>
