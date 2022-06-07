@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220526
+#define VERSION 20220607
 
 #include <QList>
 #include <QObject>
@@ -115,6 +115,7 @@ private slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
     void exitProgram(void);
     void updatePreviewLabel(quint32);
+    void setRemoveWinDecoration(bool);
 
 signals:
     void updatePreviewNotify(quint32);

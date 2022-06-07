@@ -80,7 +80,9 @@ MainSettings::MainSettings(QWidget* parent) :
     ui->checkBoxShowCursor->setChecked(true);
     ui->pushButtonStart->setDisabled(true);
 
-    ui->lineEditRegion->setReadOnly(true);
+    ui->checkBoxRemoveWinDecor->setDisabled(true);
+    ui->checkBoxRemoveWinDecor->setChecked(true);
+    ui->lineEditRegion->setDisabled(true);
     ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
 
     configLoad();
@@ -265,8 +267,19 @@ void MainSettings::updatePreviewLabel(quint32 win)
             ui->labelPreview->setScaledContents(true);
             ui->labelPreview->setPixmap(QPixmap::fromImage(image));
 
-            ui->lineEditRegion->setReadOnly(false);
-            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
+            ui->checkBoxRemoveWinDecor->setDisabled(false);
+
+            if(ui->checkBoxRemoveWinDecor->isChecked())
+            {
+                auto frame = xcb->getWindowFrame(win);
+                ui->lineEditRegion->setDisabled(true);
+                ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width() - (frame.left + frame.right)).arg(winsz.height() - (frame.top + frame.bottom)).arg(frame.left).arg(frame.top));
+            }
+            else
+            {
+                ui->lineEditRegion->setDisabled(false);
+                ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
+            }
 
             windowId = win;
             actionStart->setEnabled(true);
@@ -306,19 +319,34 @@ void MainSettings::selectWindows(void)
     }
 }
 
+void MainSettings::setRemoveWinDecoration(bool checked)
+{
+    if(windowId != XCB_WINDOW_NONE)
+    {
+        auto winsz = xcb->getWindowSize(windowId);
+
+        if(checked)
+        {
+            auto frame = xcb->getWindowFrame(windowId);
+            ui->lineEditRegion->setDisabled(true);
+            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width() - (frame.left + frame.right)).arg(winsz.height() - (frame.top + frame.bottom)).arg(frame.left).arg(frame.top));
+        }
+        else
+        {
+            ui->lineEditRegion->setDisabled(false);
+            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
+        }
+    }
+}
+
 void MainSettings::pushButton(void)
 {
-    const char* stop = "Stop";
-    const char* start = "Start";
+    bool started = ! ui->tabWidget->isEnabled();
 
-    if(ui->pushButtonStart->text() == QString(stop))
-    {
+    if(started)
         stopRecord();
-        ui->pushButtonStart->setText(start);
-    }
     else
-    if(startRecord())
-        ui->pushButtonStart->setText("Stop");
+        startRecord();
 }
 
 bool MainSettings::startRecord(void)
@@ -334,21 +362,46 @@ bool MainSettings::startRecord(void)
             hide();
 
         bool error = false;
-        QRect region;
+        QRect prefRegion;
 
         if(auto val = static_cast<const QRegExpValidator*>(ui->lineEditRegion->validator()))
         {
             const QRegExp & rx = val->regExp();
             if(0 == rx.indexIn(ui->lineEditRegion->text()))
             {
-                region.setX(rx.cap(3).toInt());
-                region.setY(rx.cap(4).toInt());
-                region.setWidth(rx.cap(1).toInt());
-                region.setHeight(rx.cap(2).toInt());
+                prefRegion.setX(rx.cap(3).toInt());
+                prefRegion.setY(rx.cap(4).toInt());
+                prefRegion.setWidth(rx.cap(1).toInt());
+                prefRegion.setHeight(rx.cap(2).toInt());
+
             }
             else
             {
                 qWarning() << "incorrect region pattern:" << ui->lineEditRegion->text();
+            }
+        }
+
+        // check preffered region
+        auto winsz = xcb->getWindowSize(windowId);
+        auto realRegion = QRect(QPoint(0, 0), winsz);
+        if(! realRegion.contains(prefRegion))
+        {
+            qWarning() << "region reset";
+            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
+            if(ui->checkBoxRemoveWinDecor->isChecked())
+            {
+                auto frame = xcb->getWindowFrame(windowId);
+                prefRegion.setX(frame.left);
+                prefRegion.setY(frame.top);
+                prefRegion.setWidth(winsz.width() - (frame.left + frame.right));
+                prefRegion.setHeight(winsz.height() - (frame.top + frame.bottom));
+            }
+            else
+            {
+                prefRegion.setX(0);
+                prefRegion.setY(0);
+                prefRegion.setWidth(winsz.width());
+                prefRegion.setHeight(winsz.height());
             }
         }
 
@@ -371,7 +424,7 @@ bool MainSettings::startRecord(void)
 
         try
         {
-            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, region, xcb, fileFormat.toStdString(), renderCursor, startFocused, audioPlugin, audioBitrate, this));
+            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, prefRegion, xcb, fileFormat.toStdString(), renderCursor, startFocused, audioPlugin, audioBitrate, this));
         }
         catch(const FFMPEG::runtimeException & err)
         {
@@ -396,6 +449,8 @@ bool MainSettings::startRecord(void)
             connect(encoder.get(), SIGNAL(shutdownNotify()), this, SLOT(exitProgram()));
             connect(encoder.get(), SIGNAL(errorNotify(QString)), this, SLOT(stopRecord(QString)));
             connect(encoder.get(), SIGNAL(restartNotify()), this, SLOT(restartRecord()));
+            ui->pushButtonStart->setText("Stop");
+            ui->tabWidget->setDisabled(true);
             actionStart->setEnabled(false);
             actionStop->setEnabled(true);
             encoder->start();
@@ -425,7 +480,8 @@ void MainSettings::stopRecord(QString error)
     ui->lineEditWindowDescription->clear();
     ui->labelPreview->clear();
     ui->lineEditRegion->clear();
-    ui->lineEditRegion->setReadOnly(true);
+    ui->lineEditRegion->setDisabled(true);
+    ui->checkBoxRemoveWinDecor->setDisabled(true);
     actionStart->setDisabled(true);
     ui->pushButtonStart->setDisabled(true);
 
@@ -439,6 +495,8 @@ void MainSettings::stopRecord(void)
 {
     encoder.reset();
 
+    ui->tabWidget->setDisabled(false);
+    ui->pushButtonStart->setText("Stop");
     actionStart->setEnabled(true);
     actionStop->setEnabled(false);
 
