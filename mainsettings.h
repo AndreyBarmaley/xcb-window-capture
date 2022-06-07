@@ -115,7 +115,6 @@ private slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
     void exitProgram(void);
     void updatePreviewLabel(quint32);
-    void setRemoveWinDecoration(bool);
 
 signals:
     void updatePreviewNotify(quint32);

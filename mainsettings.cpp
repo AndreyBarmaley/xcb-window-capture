@@ -80,8 +80,6 @@ MainSettings::MainSettings(QWidget* parent) :
     ui->checkBoxShowCursor->setChecked(true);
     ui->pushButtonStart->setDisabled(true);
 
-    ui->checkBoxRemoveWinDecor->setDisabled(true);
-    ui->checkBoxRemoveWinDecor->setChecked(true);
     ui->lineEditRegion->setDisabled(true);
     ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
 
@@ -267,19 +265,8 @@ void MainSettings::updatePreviewLabel(quint32 win)
             ui->labelPreview->setScaledContents(true);
             ui->labelPreview->setPixmap(QPixmap::fromImage(image));
 
-            ui->checkBoxRemoveWinDecor->setDisabled(false);
-
-            if(ui->checkBoxRemoveWinDecor->isChecked())
-            {
-                auto frame = xcb->getWindowFrame(win);
-                ui->lineEditRegion->setDisabled(true);
-                ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width() - (frame.left + frame.right)).arg(winsz.height() - (frame.top + frame.bottom)).arg(frame.left).arg(frame.top));
-            }
-            else
-            {
-                ui->lineEditRegion->setDisabled(false);
-                ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
-            }
+            ui->lineEditRegion->setDisabled(false);
+            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
 
             windowId = win;
             actionStart->setEnabled(true);
@@ -315,26 +302,6 @@ void MainSettings::selectWindows(void)
         {
             ui->lineEditWindowDescription->setText(sel);
             emit updatePreviewNotify(windows[sel]);
-        }
-    }
-}
-
-void MainSettings::setRemoveWinDecoration(bool checked)
-{
-    if(windowId != XCB_WINDOW_NONE)
-    {
-        auto winsz = xcb->getWindowSize(windowId);
-
-        if(checked)
-        {
-            auto frame = xcb->getWindowFrame(windowId);
-            ui->lineEditRegion->setDisabled(true);
-            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width() - (frame.left + frame.right)).arg(winsz.height() - (frame.top + frame.bottom)).arg(frame.left).arg(frame.top));
-        }
-        else
-        {
-            ui->lineEditRegion->setDisabled(false);
-            ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
         }
     }
 }
@@ -388,21 +355,10 @@ bool MainSettings::startRecord(void)
         {
             qWarning() << "region reset";
             ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));
-            if(ui->checkBoxRemoveWinDecor->isChecked())
-            {
-                auto frame = xcb->getWindowFrame(windowId);
-                prefRegion.setX(frame.left);
-                prefRegion.setY(frame.top);
-                prefRegion.setWidth(winsz.width() - (frame.left + frame.right));
-                prefRegion.setHeight(winsz.height() - (frame.top + frame.bottom));
-            }
-            else
-            {
-                prefRegion.setX(0);
-                prefRegion.setY(0);
-                prefRegion.setWidth(winsz.width());
-                prefRegion.setHeight(winsz.height());
-            }
+            prefRegion.setX(0);
+            prefRegion.setY(0);
+            prefRegion.setWidth(winsz.width());
+            prefRegion.setHeight(winsz.height());
         }
 
         auto h264Preset = static_cast<FFMPEG::H264Preset::type>(ui->comboBoxH264Preset->currentData().toInt());
@@ -481,7 +437,6 @@ void MainSettings::stopRecord(QString error)
     ui->labelPreview->clear();
     ui->lineEditRegion->clear();
     ui->lineEditRegion->setDisabled(true);
-    ui->checkBoxRemoveWinDecor->setDisabled(true);
     actionStart->setDisabled(true);
     ui->pushButtonStart->setDisabled(true);
 
