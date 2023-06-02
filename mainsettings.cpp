@@ -148,8 +148,10 @@ void MainSettings::closeEvent(QCloseEvent* event)
         event->ignore();
         hide();
     }
-
-    configSave();
+    else
+    {
+        configSave();
+    }
 }
 
 void MainSettings::iconActivated(QSystemTrayIcon::ActivationReason reason)
@@ -557,14 +559,14 @@ void FFmpegEncoderPool::run(void)
         }
 
         // window closed
-        if(! xcb->getWindowList().contains(windowId))
+        if(! xcb->getWindowList().contains(windowId) && windowId != xcb->getScreen()->root)
         {
             emit shutdownNotify();
             break;
         }
 
         // not active, paused
-        if(startFocused && windowId != xcb->getActiveWindow())
+        if(startFocused && windowId != xcb->getActiveWindow() && windowId != xcb->getScreen()->root)
             continue;
 
         now = std::chrono::steady_clock::now();
