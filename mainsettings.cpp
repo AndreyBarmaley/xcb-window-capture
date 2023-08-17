@@ -148,8 +148,10 @@ void MainSettings::closeEvent(QCloseEvent* event)
         event->ignore();
         hide();
     }
-
-    configSave();
+    else
+    {
+        configSave();
+    }
 }
 
 void MainSettings::iconActivated(QSystemTrayIcon::ActivationReason reason)
@@ -282,7 +284,9 @@ void MainSettings::updatePreviewLabel(quint32 win)
 void MainSettings::selectWindows(void)
 {
     QMap<QString, xcb_window_t> windows;
-    windows.insert("<root screen>", xcb->getScreen()->root);
+    QString rootScreen("<root screen>");
+
+    windows.insert(rootScreen, xcb->getScreen()->root);
 
     for(auto & win : xcb->getWindowList())
     {
@@ -300,6 +304,16 @@ void MainSettings::selectWindows(void)
 
         if(ok && sel.size())
         {
+            if(sel == rootScreen)
+            {
+                ui->checkBoxFocused->setChecked(false);
+                ui->checkBoxFocused->setDisabled(true);
+            }
+            else
+            {
+                ui->checkBoxFocused->setDisabled(false);
+            }
+
             ui->lineEditWindowDescription->setText(sel);
             emit updatePreviewNotify(windows[sel]);
         }
@@ -405,10 +419,6 @@ bool MainSettings::startRecord(void)
             connect(encoder.get(), SIGNAL(shutdownNotify()), this, SLOT(exitProgram()));
             connect(encoder.get(), SIGNAL(errorNotify(QString)), this, SLOT(stopRecord(QString)));
             connect(encoder.get(), SIGNAL(restartNotify()), this, SLOT(restartRecord()));
-            ui->pushButtonStart->setText("Stop");
-            ui->tabWidget->setDisabled(true);
-            actionStart->setEnabled(false);
-            actionStop->setEnabled(true);
             encoder->start();
             return true;
         }
@@ -422,6 +432,12 @@ void MainSettings::startedRecord(quint32 wid)
 {
     trayIcon->setIcon(QPixmap(QString(":/icons/streamg")));
     trayIcon->setToolTip(QString("capture window id: %1").arg(wid));
+
+    ui->pushButtonStart->setText("Stop");
+    ui->tabWidget->setDisabled(true);
+
+    actionStart->setEnabled(false);
+    actionStop->setEnabled(true);
 }
 
 void MainSettings::restartRecord(void)
@@ -433,30 +449,33 @@ void MainSettings::restartRecord(void)
 void MainSettings::stopRecord(QString error)
 {
     windowId = XCB_WINDOW_NONE;
+
     ui->lineEditWindowDescription->clear();
     ui->labelPreview->clear();
     ui->lineEditRegion->clear();
-    ui->lineEditRegion->setDisabled(true);
-    actionStart->setDisabled(true);
-    ui->pushButtonStart->setDisabled(true);
 
-    trayIcon->setIcon(QPixmap(QString(":/icons/streamr")));
-    trayIcon->setToolTip(QString("error: %1").arg(error));
+    //ui->lineEditRegion->setDisabled(true);
+    //actionStart->setDisabled(true);
+    //ui->pushButtonStart->setDisabled(true);
 
     stopRecord();
+
+    trayIcon->setToolTip(QString("error: %1").arg(error));
 }
 
 void MainSettings::stopRecord(void)
 {
     encoder.reset();
 
+    ui->pushButtonStart->setText("Start");
     ui->tabWidget->setDisabled(false);
-    ui->pushButtonStart->setText("Stop");
+
     actionStart->setEnabled(true);
     actionStop->setEnabled(false);
 
-    trayIcon->setIcon(QPixmap(QString(":/icons/streamr")));
     auto version = QString("%1 version: %2").arg(QCoreApplication::applicationName()).arg(QCoreApplication::applicationVersion());
+
+    trayIcon->setIcon(QPixmap(QString(":/icons/streamr")));
     trayIcon->setToolTip(version);
 }
 
@@ -557,14 +576,14 @@ void FFmpegEncoderPool::run(void)
         }
 
         // window closed
-        if(! xcb->getWindowList().contains(windowId))
+        if(! xcb->getWindowList().contains(windowId) && windowId != xcb->getScreen()->root)
         {
             emit shutdownNotify();
             break;
         }
 
         // not active, paused
-        if(startFocused && windowId != xcb->getActiveWindow())
+        if(startFocused && windowId != xcb->getActiveWindow() && windowId != xcb->getScreen()->root)
             continue;
 
         now = std::chrono::steady_clock::now();
