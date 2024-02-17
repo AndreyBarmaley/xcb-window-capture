@@ -647,8 +647,9 @@ void FFmpegEncoderPool::run(void)
 
                         if(ptr && 0 < len)
                         {
+                            //qWarning() << reply->x << reply->y << reply->xhot << reply->yhot;
                             QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
-                            QPoint cursorPosition(reply->x, reply->y);
+                            QPoint cursorPosition(reply->x - reply->xhot, reply->y - reply->yhot);
                             QPainter painter(& windowImage);
                             painter.drawImage(cursorPosition - absRegion.topLeft(), cursorImage);
                         }

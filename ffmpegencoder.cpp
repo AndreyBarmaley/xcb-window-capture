@@ -307,6 +307,8 @@ namespace FFMPEG
         auto format = avFormatFromPulse(pulse->format());
         if(format == AV_SAMPLE_FMT_NONE)
             throw std::runtime_error("unknown sample format");
+
+        tail.reserve(1024 * 1024);
     }
 
     void AudioEncoder::start(void)
@@ -358,20 +360,24 @@ namespace FFMPEG
         else
             tail.insert(tail.end(), raw.begin(), raw.end());
 
-        int block = av_samples_get_buffer_size(nullptr, frameSrc->channels, frameSrc->nb_samples, sampleFormat, align);
-        if(tail.size() < block)
+        int ret = av_samples_get_buffer_size(nullptr, frameSrc->channels, frameSrc->nb_samples, sampleFormat, align);
+        if(ret < 0)
+            throw FFMPEG::runtimeException("av_samples_get_buffer_size", ret);
+
+        const size_t blocksz = ret;
+        if(tail.size() < blocksz)
             return false;
 
-        for(size_t offset = 0; offset < tail.size(); offset += block)
+        for(size_t offset = 0; offset < tail.size(); offset += blocksz)
         {
             // small data
-            if(tail.size() - offset < block)
+            if(tail.size() - offset < blocksz)
             {
                 tail = std::vector<uint8_t>(tail.begin() + offset, tail.end());
                 return false;
             }
 
-            int ret = frameSrc.fill(tail.data() + offset, block, align);
+            ret = frameSrc.fill(tail.data() + offset, blocksz, align);
 
             // small data
             if(ret == AVERROR(EINVAL))

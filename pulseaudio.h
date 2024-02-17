@@ -48,9 +48,25 @@ namespace PulseAudio
     {
         void operator()(pa_context* ctx)
         {
-             pa_context_disconnect(ctx);
+            if(pa_context_get_state(ctx) != PA_CONTEXT_UNCONNECTED)
+                pa_context_disconnect(ctx);
+
+            pa_context_unref(ctx);
         }
     };
+
+    struct StreamDeleter
+    {
+        void operator()(pa_stream* st)
+        {
+            if(pa_stream_get_state(st) != PA_STREAM_UNCONNECTED)
+                pa_stream_disconnect(st);
+
+            pa_stream_unref(st);
+        }
+    };
+
+    typedef std::vector<uint8_t> BufSamples;
 
     class Context
     {
@@ -59,22 +75,26 @@ namespace PulseAudio
 
         std::unique_ptr<pa_mainloop, MainLoopDeleter> loop;
         std::unique_ptr<pa_context, ContextDeleter> ctx;
+        std::unique_ptr<pa_stream, StreamDeleter> stream;
 
         std::thread thread;
 
         std::mutex dataLock;
-        std::list<std::vector<uint8_t>> dataBuf;
+        BufSamples dataBuf;
+        std::string monitorName;
 
         static void connectNotifyCallback(pa_context*, void*);
         static void serverInfoCallback(pa_context*, const pa_server_info*, void*);
         static void streamNotifyCallback(pa_stream* stream, void*);
         static void streamReadCallback(pa_stream*, const size_t, void*);
 
+        void streamCreate(const pa_server_info* info);
+
     public:
         Context(const char* appname);
         ~Context();
 
-        std::vector<uint8_t> popDataBuf(void);
+        BufSamples popDataBuf(void);
 
         int format(void) const { return spec.format; }
         int rate(void) const { return spec.rate; }

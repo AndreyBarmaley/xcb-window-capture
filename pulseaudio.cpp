@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <iostream>
 
+#include <QDebug>
+
 #include "pulseaudio.h"
 
 namespace PulseAudio
@@ -52,6 +54,8 @@ namespace PulseAudio
         if(0 > pa_context_connect(ctx.get(), nullptr, PA_CONTEXT_NOFLAGS, nullptr))
             throw std::runtime_error("pa_context_connect failed");
 
+        //qWarning() << "pulseaudio server: " << pa_context_get_server( ctx.get() );
+
         thread = std::thread([this]
         {
             pa_mainloop_run(loop.get(), nullptr);
@@ -66,22 +70,31 @@ namespace PulseAudio
             thread.join();
     }
 
-    std::vector<uint8_t> Context::popDataBuf(void)
+    void Context::streamCreate(const pa_server_info* info)
+    {
+        stream.reset( pa_stream_new(ctx.get(), "capture monitor", & spec, nullptr) );
+
+        pa_stream_set_state_callback(stream.get(), & streamNotifyCallback, this);
+        pa_stream_set_read_callback(stream.get(), & streamReadCallback, this);
+
+        const pa_buffer_attr attr = {
+            .maxlength = UINT32_MAX,
+            .tlength = UINT32_MAX,
+            .prebuf = UINT32_MAX,
+            .minreq = UINT32_MAX,
+            .fragsize = 1024 };
+
+        pa_stream_flags_t flags = PA_STREAM_ADJUST_LATENCY; /* PA_STREAM_NOFLAGS */
+        monitorName = std::string(info->default_sink_name).append(".monitor");
+
+        if(0 != pa_stream_connect_record(stream.get(), monitorName.c_str(), & attr, flags))
+            throw std::runtime_error("pa_stream_connect_record failed");
+    }
+
+    BufSamples Context::popDataBuf(void)
     {
         const std::lock_guard<std::mutex> lock(dataLock);
-
-        std::vector<uint8_t> res;
-        auto size = std::accumulate(dataBuf.begin(), dataBuf.end(), 0,
-                                [](int res, auto & val){ return res += val.size(); });
-        if(0 < size)
-        {
-            for(auto & vec : dataBuf)
-                res.insert(res.end(), vec.begin(), vec.end());
-
-            dataBuf.clear();
-        }
-
-        return res;
+        return std::move(dataBuf);
     }
 
     void Context::streamNotifyCallback(pa_stream* stream, void* userData)
@@ -108,9 +121,16 @@ namespace PulseAudio
             if(streamData && streamBytes && context)
             {
                 const std::lock_guard<std::mutex> lock(context->dataLock);
+                const size_t reserve = 1024 * 1024;
+
+                if(context->dataBuf.capacity() < reserve)
+                    context->dataBuf.reserve(reserve);
+
+                if(context->dataBuf.capacity() < context->dataBuf.size() + streamBytes)
+                    context->dataBuf.clear();
 
                 auto begin = static_cast<const uint8_t*>(streamData);
-                context->dataBuf.emplace_back(begin, begin + streamBytes);
+                context->dataBuf.insert(context->dataBuf.end(), begin, begin + streamBytes);
             }
 
             if(streamBytes)
@@ -120,26 +140,19 @@ namespace PulseAudio
 
     void Context::serverInfoCallback(pa_context* ctx, const pa_server_info* info, void* userData)
     {
-        auto context = static_cast<Context*>(userData);
-
-        pa_stream* stream = pa_stream_new(ctx, "capture monitor", & context->spec, nullptr);
-
-        pa_stream_set_state_callback(stream, & streamNotifyCallback, userData);
-        pa_stream_set_read_callback(stream, & streamReadCallback, userData);
-
-        auto monitorName = std::string(info->default_sink_name).append(".monitor");
-
-        if(0 != pa_stream_connect_record(stream, monitorName.c_str(), nullptr, PA_STREAM_NOFLAGS))
-            throw std::runtime_error("pa_stream_connect_record failed");
+        if(auto context = static_cast<Context*>(userData))
+            context->streamCreate(info);
     }
 
     void Context::connectNotifyCallback(pa_context* ctx, void* userData)
     {
         auto state = pa_context_get_state(ctx);
 
-        if(PA_CONTEXT_READY == state)
-            pa_context_get_server_info(ctx, & serverInfoCallback, userData);
-        else
+        if(PA_CONTEXT_READY == state) {
+            if(auto op = pa_context_get_server_info(ctx, & serverInfoCallback, userData) ) {
+                pa_operation_unref( op );
+            }
+        } else
         if(PA_CONTEXT_FAILED == state)
             throw std::runtime_error("pa_context_get_state failed");
     }
