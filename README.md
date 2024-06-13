@@ -1,5 +1,5 @@
 # XcbWindowCapture
-Small tray utility for record X11 window to h264 video
+Small tray utility for record X11 window to h264 video. During recording, the window can be moved and resized, this is magic.
 
 ## main dependencies:  
  - ffmpeg libs
