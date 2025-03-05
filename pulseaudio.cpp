@@ -31,7 +31,7 @@
 
 namespace PulseAudio
 {
-    Context::Context(const char* appname)
+    Context::Context(const char* appname, bool defSink) : defaultSink(defSink)
     {
         spec.format = PA_SAMPLE_S16LE;
         spec.rate = 44100;
@@ -85,7 +85,8 @@ namespace PulseAudio
             .fragsize = 1024 };
 
         pa_stream_flags_t flags = PA_STREAM_ADJUST_LATENCY; /* PA_STREAM_NOFLAGS */
-        monitorName = std::string(info->default_sink_name).append(".monitor");
+    
+        monitorName = std::string(defaultSink ? info->default_sink_name : info->default_source_name).append(".monitor");
 
         if(0 != pa_stream_connect_record(stream.get(), monitorName.c_str(), & attr, flags))
             throw std::runtime_error("pa_stream_connect_record failed");

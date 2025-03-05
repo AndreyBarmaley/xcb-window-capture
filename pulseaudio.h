@@ -82,6 +82,7 @@ namespace PulseAudio
         std::mutex dataLock;
         BufSamples dataBuf;
         std::string monitorName;
+        bool defaultSink = true;
 
         static void connectNotifyCallback(pa_context*, void*);
         static void serverInfoCallback(pa_context*, const pa_server_info*, void*);
@@ -91,7 +92,7 @@ namespace PulseAudio
         void streamCreate(const pa_server_info* info);
 
     public:
-        Context(const char* appname);
+        Context(const char* appname, bool defaultSink = true);
         ~Context();
 
         BufSamples popDataBuf(void);

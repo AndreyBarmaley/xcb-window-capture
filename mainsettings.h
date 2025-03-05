@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20220607
+#define VERSION 20250305
 
 #include <QList>
 #include <QObject>
@@ -58,10 +58,11 @@ class FFmpegEncoderPool : public QThread, public FFMPEG::H264Encoder
     std::unique_ptr<char[]> outputPath;
     bool showCursor;
     bool startFocused;
+    bool winDecor;
 
 public:
     FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, const QRect &,
-            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, const AudioPlugin &, int, QObject*);
+            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, bool, const AudioPlugin &, int, QObject*);
     ~FFmpegEncoderPool();
 
 protected:

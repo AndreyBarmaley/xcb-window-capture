@@ -29,8 +29,8 @@ SOURCES += main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp pulseaudio
 HEADERS += mainsettings.h xcbwrapper.h ffmpegencoder.h pulseaudio.h
 
 FORMS += mainsettings.ui
-INCLUDEPATH += /usr/include/ffmpeg
-LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lswresample -lavutil -lpulse
+INCLUDEPATH += /usr/include/ffmpeg /usr/include/compat-ffmpeg4
+LIBS += -lxcb-shm -lxcb -lavdevice -lavformat -lavcodec -lswscale -lswresample -lavutil -lpulse -lxcb-xfixes
 
 DISTFILES +=
 RESOURCES += resources.qrc

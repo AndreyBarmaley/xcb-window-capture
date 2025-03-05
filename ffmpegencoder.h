@@ -48,7 +48,7 @@ extern "C" {
 
 #include "pulseaudio.h"
 
-enum class AudioPlugin { None, PulseAudio };
+enum class AudioPlugin { None, PulseAudioSink, PulseAudioSource };
 
 namespace FFMPEG
 {

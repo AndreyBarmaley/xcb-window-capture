@@ -302,7 +302,7 @@ namespace FFMPEG
 
         stream->time_base = (AVRational){ 1, avcctx->sample_rate };
 
-        pulse.reset(new PulseAudio::Context("XcbWindowCapture"));
+        pulse.reset(new PulseAudio::Context("XcbWindowCapture", plugin == AudioPlugin::PulseAudioSink));
 
         auto format = avFormatFromPulse(pulse->format());
         if(format == AV_SAMPLE_FMT_NONE)

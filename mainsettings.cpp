@@ -77,8 +77,10 @@ MainSettings::MainSettings(QWidget* parent) :
         ui->comboBoxH264Preset->addItem(FFMPEG::H264Preset::name(type), type);
     }
     ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(FFMPEG::H264Preset::Medium));
-    ui->checkBoxShowCursor->setChecked(true);
+    ui->checkBoxRemoveWinDecor->setVisible(false);
     ui->pushButtonStart->setDisabled(true);
+    // FIXME: need use XCompositeGetOverlayWindow
+    ui->checkBoxShowCursor->setChecked(true);
 
     ui->lineEditRegion->setDisabled(true);
     ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
@@ -386,15 +388,18 @@ bool MainSettings::startRecord(void)
         bool startFocused = ui->checkBoxFocused->isChecked();
 
         AudioPlugin audioPlugin = AudioPlugin::None;
-        if(ui->comboBoxAudioPlugin->currentText() == "pulseaudio")
-            audioPlugin = AudioPlugin::PulseAudio;
+        if(ui->comboBoxAudioPlugin->currentText() == "default sink")
+            audioPlugin = AudioPlugin::PulseAudioSink;
+        else
+        if(ui->comboBoxAudioPlugin->currentText() == "default source")
+            audioPlugin = AudioPlugin::PulseAudioSource;
 
         if(startFocused)
             trayIcon->setIcon(QPixmap(QString(":/icons/streamb")));
 
         try
         {
-            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, prefRegion, xcb, fileFormat.toStdString(), renderCursor, startFocused, audioPlugin, audioBitrate, this));
+            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, prefRegion, xcb, fileFormat.toStdString(), renderCursor, startFocused, ! ui->checkBoxRemoveWinDecor->isChecked(), audioPlugin, audioBitrate, this));
         }
         catch(const FFMPEG::runtimeException & err)
         {
@@ -481,8 +486,8 @@ void MainSettings::stopRecord(void)
 
 /* FFmpegEncoderPool */
 FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int vbitrate, xcb_window_t win, const QRect & region,
-    std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool focused, const AudioPlugin & audioPlugin, int audioBitrate, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, vbitrate, audioPlugin, audioBitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), startFocused(focused)
+    std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool focused, bool decor, const AudioPlugin & audioPlugin, int audioBitrate, QObject* obj)
+    : QThread(obj), FFMPEG::H264Encoder(preset, vbitrate, audioPlugin, audioBitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), startFocused(focused), winDecor(decor)
 {
     time_t raw;
     std::time(& raw);
@@ -647,9 +652,9 @@ void FFmpegEncoderPool::run(void)
 
                         if(ptr && 0 < len)
                         {
-                            //qWarning() << reply->x << reply->y << reply->xhot << reply->yhot;
+                            auto winFrame = xcb->getWindowFrame(windowId);
                             QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
-                            QPoint cursorPosition(reply->x - reply->xhot, reply->y - reply->yhot);
+                            QPoint cursorPosition(reply->x + winFrame.left, reply->y + winFrame.top);
                             QPainter painter(& windowImage);
                             painter.drawImage(cursorPosition - absRegion.topLeft(), cursorImage);
                         }
