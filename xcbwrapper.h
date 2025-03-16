@@ -35,6 +35,7 @@
 #include "xcb/xcb.h"
 #include "xcb/shm.h"
 #include "xcb/xfixes.h"
+#include "xcb/composite.h"
 
 template<typename ReplyType>
 struct GenericReply : std::shared_ptr<ReplyType>
@@ -82,95 +83,142 @@ struct XcbPropertyReply : GenericReply<xcb_get_property_reply_t>
 };
 
 
-/// XcbPixmapInfoBase
-class XcbPixmapInfoBase
+/// XcbPixmapInfo
+class XcbPixmapInfo
 {
 protected:
-    size_t _depth;
-    xcb_visualid_t _visid;
+    int depth = 0;
+    xcb_visualid_t visual = 0;
 
 public:
-    XcbPixmapInfoBase(uint8_t d = 0, xcb_visualid_t v = 0) : _depth(d), _visid(v) {}
-    virtual ~XcbPixmapInfoBase() {}
+    XcbPixmapInfo() = default;
+    virtual ~XcbPixmapInfo() = default;
 
-    size_t depth(void) const { return _depth; }
-    xcb_visualid_t visId(void) const { return _visid; }
+    XcbPixmapInfo(int d, xcb_visualid_t v) : depth(d), visual(v) {}
 
-    virtual uint8_t* data(void) = 0;
-    virtual const uint8_t* data(void) const = 0;
-    virtual size_t size(void) const = 0;
+    int pixmapDepth(void) const { return depth; }
+    const xcb_visualid_t & pixmapVisual(void) const { return visual; }
+
+    virtual const uint8_t* pixmapData(void) const = 0;
+    virtual uint8_t* pixmapData(void) = 0;
+    virtual size_t pixmapSize(void) const = 0;
+
 };
 
-typedef std::shared_ptr<XcbPixmapInfoBase> XcbPixmapInfoReply;
+typedef std::unique_ptr<XcbPixmapInfo> XcbPixmapInfoReply;
 
-struct shm_t
+struct xcb_error : public std::runtime_error
 {
-    uint32_t _xcb;
-    xcb_connection_t* _conn;
-    int _shm;
-    uint8_t* _addr;
-
-    shm_t(int shmid, uint8_t* ptr, xcb_connection_t* xcon, uint32_t id = 0) : _xcb(id), _conn(xcon), _shm(shmid), _addr(ptr) {}
-    ~shm_t();
+    explicit xcb_error( const std::string_view err ) : std::runtime_error( err.data() ) {}
 };
 
-struct shm_error
-{
-    const char* _err;
-    shm_error(const char* err) : _err(err) {}
-};
-
-/// XcbSHM
-struct XcbSHM : std::shared_ptr<shm_t>
-{
-    XcbSHM() {}
-    XcbSHM(int shmid, uint8_t* addr, xcb_connection_t*);
-
-    QPair<XcbPixmapInfoReply, GenericError>
-        getPixmapRegion(xcb_drawable_t, const QRect &, size_t offset = 0, uint32_t planeMask = 0xFFFFFFFF) const;
-
-    uint8_t*  data(void);
-    const uint8_t* data(void) const;
-    xcb_connection_t* connection(void) const;
-    uint32_t xid(void) const;
-};
-
-/// XcbPixmapInfoSHM
-class XcbPixmapInfoSHM : public XcbPixmapInfoBase
+/// PixmapInfoBuffer
+class PixmapInfoBuffer : public XcbPixmapInfo
 {
 protected:
-    XcbSHM _shm;
-    size_t _size;
+    std::vector<uint8_t> buf;
 
 public:
-    XcbPixmapInfoSHM() : _size(0) {}
-    XcbPixmapInfoSHM(uint8_t depth, xcb_visualid_t vis, const XcbSHM & shm, size_t len)
-        : XcbPixmapInfoBase(depth, vis), _shm(shm), _size(len) {}
+    PixmapInfoBuffer() = default;
 
-    uint8_t* data(void) override;
-    const uint8_t* data(void) const override;
-    size_t size(void) const override;
+    PixmapInfoBuffer(int depth, xcb_visualid_t visual, size_t res = 0)
+        : XcbPixmapInfo(depth, visual) { buf.reserve(res); }
 
-    XcbSHM shm(void) const { return _shm; }
+    uint8_t* pixmapData(void) override { return buf.data(); }
+    const uint8_t* pixmapData(void) const override { return buf.data(); }
+    size_t pixmapSize(void) const override { return buf.size(); }
+
+    std::vector<uint8_t> & pixels(void) { return buf; };
+    const std::vector<uint8_t> & pixels(void) const { return buf; };
 };
 
-/// XcbPixmapInfoBuffer
-class XcbPixmapInfoBuffer : public XcbPixmapInfoBase
+/// PixmapInfoShm
+class PixmapInfoShm : public XcbPixmapInfo
 {
 protected:
-    std::vector<uint8_t> _pixels;
+    uint8_t* buf = nullptr;
+    uint32_t len = 0;
 
 public:
-    XcbPixmapInfoBuffer() {}
-    XcbPixmapInfoBuffer(uint8_t depth, xcb_visualid_t vis, size_t res = 0)
-        : XcbPixmapInfoBase(depth, vis) { _pixels.reserve(res); }
+    PixmapInfoShm() = default;
 
-    uint8_t* data(void) override;
-    const uint8_t* data(void) const override;
-    size_t size(void) const override;
+    PixmapInfoShm(int depth, xcb_visualid_t visual, uint8_t* ptr, size_t sz)
+        : XcbPixmapInfo(depth, visual), buf(ptr), len(sz) {}
 
-    std::vector<uint8_t> & pixels(void) { return _pixels; };
-    const std::vector<uint8_t> & pixels(void) const { return _pixels; };
+    uint8_t* pixmapData(void) override { return buf; }
+    const uint8_t* pixmapData(void) const override { return buf; }
+    size_t pixmapSize(void) const override { return len; }
+};
+
+/// XcbComposite
+class XcbComposite
+{
+protected:
+
+public:
+    XcbComposite(xcb_connection_t* conn);
+
+    bool redirectWindow(xcb_connection_t*, xcb_window_t, bool autoUpdate = true) const;
+    bool unredirectWindow(xcb_connection_t*, xcb_window_t, bool autoUpdate = true) const;
+
+    bool redirectSubWindows(xcb_connection_t*, xcb_window_t, bool autoUpdate = true) const;
+    bool unredirectSubWindows(xcb_connection_t*, xcb_window_t, bool autoUpdate = true) const;
+
+    bool nameWindowPixmap(xcb_connection_t*, xcb_window_t, xcb_pixmap_t) const;
+    xcb_pixmap_t nameWindowPixmap(xcb_connection_t*, xcb_window_t) const;
+
+    xcb_window_t getOverlayWindow(xcb_connection_t*, xcb_window_t) const;
+    bool releaseOverlayWindow(xcb_connection_t*, xcb_window_t) const;
+};
+
+/// XcbShm
+class XcbShm
+{
+protected:
+
+public:
+    XcbShm(xcb_connection_t* conn);
+
+    bool attach(xcb_connection_t*, xcb_shm_seg_t, uint32_t shmid, bool readOnly = false) const;
+    bool detach(xcb_connection_t*, xcb_shm_seg_t) const;
+
+    bool putImage(xcb_connection_t*, xcb_drawable_t drawable, xcb_gcontext_t gc, const QSize & total, const QRect & src, const QPoint & dst, uint8_t depth, uint8_t format, uint8_t send_event, xcb_shm_seg_t shmseg, uint32_t offset = 0) const;
+    bool createPixmap(xcb_connection_t*, xcb_pixmap_t pid, xcb_drawable_t drawable, const QSize &, uint8_t depth, xcb_shm_seg_t shmseg, uint32_t offset = 0) const;
+};
+
+typedef GenericReply<xcb_shm_get_image_reply_t> XcbShmGetImageReply;
+
+/// XcbShPixmap
+class XcbShmPixmap : protected XcbShm
+{
+    int shmid = -1;
+    uint8_t* addr = nullptr;
+    xcb_shm_seg_t shmseg = XCB_NONE;
+
+public:
+    XcbShmPixmap(xcb_connection_t* conn, size_t);
+    ~XcbShmPixmap();
+
+    XcbShmGetImageReply getImageReply(xcb_connection_t*, xcb_drawable_t drawable, const QRect & reg, uint32_t offset = 0);
+
+    XcbPixmapInfoReply getPixmap(const XcbShmGetImageReply &) const;
+    bool detach(xcb_connection_t*) const;
+};
+
+typedef GenericReply<xcb_xfixes_get_cursor_image_reply_t> XcbXfixesGetCursorImageReply;
+
+/// XcbXfixes
+class XcbXfixes
+{
+protected:
+
+public:
+    XcbXfixes(xcb_connection_t* conn);
+
+    XcbXfixesGetCursorImageReply getCursorImageReply(xcb_connection_t*) const;
+
+    uint32_t* getCursorImageData(const XcbXfixesGetCursorImageReply &) const;
+    size_t getCursorImageLength(const XcbXfixesGetCursorImageReply &) const;
 };
 
 struct WinFrameSize
@@ -186,35 +234,42 @@ struct XcbConnection
 {
 protected:
     std::unique_ptr<xcb_connection_t, decltype(xcb_disconnect)*> conn;
+
+    std::unique_ptr<XcbXfixes> xfixes;
+    std::unique_ptr<XcbShmPixmap> shmpix;
+    std::unique_ptr<XcbComposite> composite;
+
     xcb_screen_t* screen;
     xcb_format_t* format;
-    XcbSHM extSHM;
-
-    bool        initSHM(void);
-    XcbSHM      getSHM(size_t);
-
-    bool        initXFIXES(void);
 
 public:
     XcbConnection();
-    virtual ~XcbConnection() {}
+    virtual ~XcbConnection();
 
     xcb_format_t* findFormat(int depth) const;
     xcb_visualtype_t* findVisual(xcb_visualid_t vid) const;
     xcb_atom_t getAtom(const QString & name, bool create = true) const;
 
-    QRect getWindowGeometry(xcb_window_t) const;
-    QPoint getWindowPosition(xcb_window_t) const;
+    QRect getWindowGeometry(xcb_window_t, bool abspos = true) const;
     QSize getWindowSize(xcb_window_t) const;
 
+    QPoint getWindowPosition(xcb_window_t, bool abspos = true) const;
+    QPoint translateCoordinates(xcb_window_t, const QPoint &, xcb_window_t parent = XCB_WINDOW_NONE) const;
+
     QString getWindowName(xcb_window_t) const;
+    xcb_window_t getWindowParent(xcb_window_t) const;
     xcb_window_t getActiveWindow(void) const;
-    xcb_screen_t* getScreen(void) const;
+    xcb_window_t getScreenRoot(void) const;
+    //xcb_screen_t* getScreen(void) const;
     QList<xcb_window_t> getWindowList(void) const;
     WinFrameSize getWindowFrame(xcb_window_t) const;
     QString getAtomName(xcb_atom_t) const;
 
     xcb_connection_t* connection(void) const { return conn.get(); }
+
+    const XcbXfixes* getXfixesExtension(void) const { return xfixes.get(); }
+    const XcbShmPixmap* getShmExtension(void) const { return shmpix.get(); }
+    const XcbComposite* getCompositeExtension(void) const { return composite.get(); }
 
     int bppFromDepth(int depth) const;
     int depthFromBPP(int bitsPerPixel) const;
@@ -224,8 +279,7 @@ public:
     QStringList getPropertyStringList(xcb_window_t win, xcb_atom_t prop) const;
     QString getPropertyString(xcb_window_t win, xcb_atom_t prop) const;
 
-    QPair<XcbPixmapInfoReply, QString>
-        getWindowRegion(xcb_window_t, const QRect &, uint32_t planeMask = 0xFFFFFFFF) const;
+    XcbPixmapInfoReply getWindowRegion(xcb_window_t, const QRect &, QString* errstr = nullptr) const;
 
     template<typename Reply, typename Cookie>
     ReplyError<Reply> getReply2(std::function<Reply*(xcb_connection_t*, Cookie, xcb_generic_error_t**)> func, Cookie cookie) const

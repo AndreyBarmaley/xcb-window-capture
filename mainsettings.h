@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20250305
+#define VERSION 20250316
 
 #include <QList>
 #include <QObject>
@@ -52,17 +52,17 @@ class FFmpegEncoderPool : public QThread, public FFMPEG::H264Encoder
     Q_OBJECT
 
     xcb_window_t windowId;
+    xcb_pixmap_t compositeId;
     QRect windowRegion;
     std::shared_ptr<XcbConnection> xcb;
     std::atomic<bool> shutdown;
     std::unique_ptr<char[]> outputPath;
     bool showCursor;
     bool startFocused;
-    bool winDecor;
 
 public:
-    FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, const QRect &,
-            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, bool, const AudioPlugin &, int, QObject*);
+    FFmpegEncoderPool(const FFMPEG::H264Preset::type &, int bitrate, xcb_window_t win, xcb_pixmap_t composite, const QRect &,
+            std::shared_ptr<XcbConnection>, const std::string &, bool, bool, const AudioPlugin &, int, QObject*);
     ~FFmpegEncoderPool();
 
 protected:
@@ -84,14 +84,16 @@ class MainSettings : public QWidget
     std::unique_ptr<PulseAudio::Context> pulse;
     std::unique_ptr<FFmpegEncoderPool> encoder;
 
-    Ui::MainSettings* ui;
-    QSystemTrayIcon* trayIcon;
-    QAction* actionSettings;
-    QAction* actionStart;
-    QAction* actionStop;
-    QAction* actionExit;
+    Ui::MainSettings* ui = nullptr;
+    QSystemTrayIcon* trayIcon = nullptr;
+    QAction* actionSettings = nullptr;
+    QAction* actionStart = nullptr;
+    QAction* actionStop = nullptr;
+    QAction* actionExit = nullptr;
     QString windowClass;
-    xcb_window_t windowId;
+
+    xcb_window_t windowId = XCB_WINDOW_NONE;
+    xcb_pixmap_t compositeId = XCB_PIXMAP_NONE;
 
 public:
     explicit MainSettings(QWidget* parent = 0);

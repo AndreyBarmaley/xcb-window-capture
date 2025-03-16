@@ -33,15 +33,6 @@
 
 #define getReplyFunc1(NAME,conn,...) getReply1<NAME##_reply_t,NAME##_cookie_t>(NAME##_reply,conn,NAME(conn,##__VA_ARGS__))
 
-shm_t::~shm_t()
-{
-    if(_xcb) xcb_shm_detach(_conn, _xcb);
-
-    if(_addr) shmdt(_addr);
-
-    if(0 < _shm) shmctl(_shm, IPC_RMID, 0);
-}
-
 QString GenericError::toString(const char* func) const
 {
     auto err = get();
@@ -63,91 +54,336 @@ QString GenericError::toString(const char* func) const
     return nullptr;
 }
 
-/* XcbSHM */
-XcbSHM::XcbSHM(int shmid, uint8_t* addr, xcb_connection_t* conn)
+/* Xcb Composite */
+XcbComposite::XcbComposite(xcb_connection_t* conn)
 {
-    auto id = xcb_generate_id(conn);
-    auto cookie = xcb_shm_attach_checked(conn, id, shmid, 0);
+    auto xcomp = xcb_get_extension_data(conn, & xcb_composite_id);
 
-    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    if(! xcomp || ! xcomp->present)
     {
-        qWarning() << err.toString("xcb_shm_attach");
-        throw shm_error("xcb_shm_attach");
+        qWarning() << "xcb_composite failed";
+        throw xcb_error(__FUNCTION__);
     }
 
-    reset(new shm_t(shmid, addr, conn, id));
-}
-
-uint8_t* XcbSHM::data(void)
-{
-    return get() ? get()->_addr : nullptr;
-}
-
-const uint8_t* XcbSHM::data(void) const
-{
-    return get() ? get()->_addr : nullptr;
-}
-
-xcb_connection_t* XcbSHM::connection(void) const
-{
-    return get() ? get()->_conn : nullptr;
-}
-
-uint32_t XcbSHM::xid(void) const
-{
-    return get() ? get()->_xcb : 0;
-}
-
-QPair<XcbPixmapInfoReply, GenericError>
-    XcbSHM::getPixmapRegion(xcb_drawable_t winid, const QRect & reg, size_t offset, uint32_t planeMask) const
-{
-    auto xcbReply = getReplyFunc1(xcb_shm_get_image, connection(), winid, reg.x(), reg.y(), reg.width(), reg.height(),
-                                    planeMask, XCB_IMAGE_FORMAT_Z_PIXMAP, xid(), offset);
-    XcbPixmapInfoReply res;
+    auto xcbReply = getReplyFunc1(xcb_composite_query_version, conn, XCB_COMPOSITE_MAJOR_VERSION, XCB_COMPOSITE_MINOR_VERSION);
 
     if(auto err = xcbReply.error())
     {
-        //res->setError(err);
-        qWarning() << err.toString("xcb_shm_get_image");
-        return QPair<XcbPixmapInfoReply, GenericError>(res, err);
+        qWarning() << err.toString("xcb_composite_query_version");
+        throw xcb_error(__FUNCTION__);
     }
-        
+
     if(auto reply = xcbReply.reply())
-        res = std::make_shared<XcbPixmapInfoSHM>(reply->depth, reply->visual, *this, reply->size);
-
-    return QPair<XcbPixmapInfoReply, GenericError>(res, nullptr);
+    {
+        qDebug() << QString("composite version: %1.%2").arg(reply->major_version).arg(reply->minor_version);
+    }
+    else
+    {
+        qWarning() << "xcb_composite_query_version failed";
+        throw xcb_error(__FUNCTION__);
+    }
 }
 
-/* XcbPixmapInfoSHM */
-uint8_t* XcbPixmapInfoSHM::data(void)
+bool XcbComposite::redirectWindow(xcb_connection_t* conn, xcb_window_t win, bool autoUpdate) const
 {
-    return _shm.data();
+    auto cookie = xcb_composite_redirect_window_checked(conn, win, autoUpdate ? XCB_COMPOSITE_REDIRECT_AUTOMATIC : XCB_COMPOSITE_REDIRECT_MANUAL);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_redirect_window");
+        return false;
+    }
+
+    return true;
 }
 
-const uint8_t* XcbPixmapInfoSHM::data(void) const
+bool XcbComposite::unredirectWindow(xcb_connection_t* conn, xcb_window_t win, bool autoUpdate) const
 {
-    return _shm.data();
+    auto cookie = xcb_composite_unredirect_window_checked(conn, win, autoUpdate ? XCB_COMPOSITE_REDIRECT_AUTOMATIC : XCB_COMPOSITE_REDIRECT_MANUAL);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_unredirect_window");
+        return false;
+    }
+
+    return true;
 }
 
-size_t XcbPixmapInfoSHM::size(void) const
+bool XcbComposite::redirectSubWindows(xcb_connection_t* conn, xcb_window_t win, bool autoUpdate) const
 {
-    return _size;
+    auto cookie = xcb_composite_redirect_subwindows_checked(conn, win, autoUpdate ? XCB_COMPOSITE_REDIRECT_AUTOMATIC : XCB_COMPOSITE_REDIRECT_MANUAL);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_redirect_window");
+        return false;
+    }
+
+    return true;
 }
 
-/* XcbPixmapInfoBuffer */
-uint8_t* XcbPixmapInfoBuffer::data(void)
+bool XcbComposite::unredirectSubWindows(xcb_connection_t* conn, xcb_window_t win, bool autoUpdate) const
 {
-    return _pixels.data();
+    auto cookie = xcb_composite_unredirect_subwindows_checked(conn, win, autoUpdate ? XCB_COMPOSITE_REDIRECT_AUTOMATIC : XCB_COMPOSITE_REDIRECT_MANUAL);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_unredirect_subwindows");
+        return false;
+    }
+
+    return true;
 }
 
-const uint8_t* XcbPixmapInfoBuffer::data(void) const
+bool XcbComposite::nameWindowPixmap(xcb_connection_t* conn, xcb_window_t win, xcb_pixmap_t pix) const
 {
-    return _pixels.data();
+    auto cookie = xcb_composite_name_window_pixmap_checked(conn, win, pix);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_name_window_pixmap");
+        return false;
+    }
+
+    return true;
 }
 
-size_t XcbPixmapInfoBuffer::size(void) const
+xcb_pixmap_t XcbComposite::nameWindowPixmap(xcb_connection_t* conn, xcb_window_t win) const
 {
-    return _pixels.size();
+    xcb_pixmap_t pixmap = xcb_generate_id(conn);
+    auto cookie = xcb_composite_name_window_pixmap_checked(conn, win, pixmap);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_name_window_pixmap");
+        return XCB_PIXMAP_NONE;
+    }
+
+    return pixmap;
+}
+
+xcb_window_t XcbComposite::getOverlayWindow(xcb_connection_t* conn, xcb_window_t win) const
+{
+    auto xcbReply = getReplyFunc1(xcb_composite_get_overlay_window, conn, win);
+
+    if(auto err = xcbReply.error())
+    {
+        qWarning() << err.toString("xcb_composite_get_overlay_window");
+        return XCB_WINDOW_NONE;
+    }
+
+    if(auto reply = xcbReply.reply())
+        return reply->overlay_win;
+
+    return XCB_WINDOW_NONE;
+}
+
+bool XcbComposite::releaseOverlayWindow(xcb_connection_t* conn, xcb_window_t win) const
+{
+    auto cookie = xcb_composite_release_overlay_window_checked(conn, win);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_composite_release_overlay_window");
+        return false;
+    }
+
+    return true;
+}
+
+/* Xcb Shm */
+XcbShm::XcbShm(xcb_connection_t* conn)
+{
+    auto shm = xcb_get_extension_data(conn, &xcb_shm_id);
+    if(! shm || ! shm->present)
+    {
+        qWarning() << "xcb_shm failed";
+        throw xcb_error(__FUNCTION__);
+    }
+
+    auto xcbReply = getReplyFunc1(xcb_shm_query_version, conn);
+
+    if(auto err = xcbReply.error())
+    {
+        qWarning() << err.toString("xcb_shm_query_version");
+        throw xcb_error(__FUNCTION__);
+    }
+
+    if(auto reply = xcbReply.reply())
+    {
+        qDebug() << QString("shm version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
+    }
+    else
+    {
+        qWarning() << "xcb_shm_query_version failed";
+        throw xcb_error(__FUNCTION__);
+    }
+}
+
+bool XcbShm::attach(xcb_connection_t* conn, xcb_shm_seg_t seg, uint32_t shmid, bool readOnly) const
+{
+    auto cookie = xcb_shm_attach(conn, seg, shmid, readOnly);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_shm_attach");
+        return false;
+    }
+
+    return true;
+}
+
+bool XcbShm::detach(xcb_connection_t* conn, xcb_shm_seg_t seg) const
+{
+    auto cookie = xcb_shm_detach_checked(conn, seg);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_shm_detach");
+        return false;
+    }
+
+    return true;
+}
+
+bool XcbShm::putImage(xcb_connection_t* conn, xcb_drawable_t drawable, xcb_gcontext_t gc, const QSize & total, const QRect & src, const QPoint & dst, uint8_t depth, uint8_t format, uint8_t send_event, xcb_shm_seg_t shmseg, uint32_t offset) const
+{
+    auto cookie = xcb_shm_put_image(conn, drawable, gc, total.width(), total.height(), 
+        src.x(), src.y(), src.width(), src.height(), dst.x(), dst.y(), depth, format, send_event, shmseg, offset);
+
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_shm_put_image");
+        return false;
+    }
+
+    return true;
+}
+
+bool XcbShm::createPixmap(xcb_connection_t* conn, xcb_pixmap_t pid, xcb_drawable_t drawable, const QSize & sz, uint8_t depth, xcb_shm_seg_t shmseg, uint32_t offset) const
+{
+    auto cookie = xcb_shm_create_pixmap_checked(conn, pid, drawable, sz.width(), sz.height(), depth, shmseg, offset);
+ 
+    if(auto err = GenericError(xcb_request_check(conn, cookie)))
+    {
+        qWarning() << err.toString("xcb_shm_create_pixmap_checked");
+        return false;
+    }
+
+    return true;
+}
+
+/* Xcb Shm Pixmap */
+XcbShmPixmap::XcbShmPixmap(xcb_connection_t* conn, size_t sz) : XcbShm(conn)
+{
+    // init shm
+    shmid = shmget(IPC_PRIVATE, sz, IPC_CREAT | S_IRUSR | S_IWUSR);
+
+    if(shmid == -1)
+    {
+        qWarning() << "shmget failed";
+        throw xcb_error(__FUNCTION__);
+    }
+
+    addr = reinterpret_cast<uint8_t*>(shmat(shmid, 0, 0));
+
+    // man shmat: check result
+    if(addr == reinterpret_cast<uint8_t*>(-1))
+    {
+        qWarning() << "shmat failed";
+        throw xcb_error(__FUNCTION__);
+    }
+
+    shmseg = xcb_generate_id(conn);
+
+    if(! attach(conn, shmseg, shmid, false))
+        throw xcb_error(__FUNCTION__);
+}
+
+XcbShmPixmap::~XcbShmPixmap()
+{
+    if(addr)
+        shmdt(addr);
+    
+    if(0 <= shmid)
+        shmctl(shmid, IPC_RMID, 0);
+}
+
+bool XcbShmPixmap::detach(xcb_connection_t* conn) const
+{
+    return XcbShm::detach(conn, shmseg);
+}
+
+
+XcbShmGetImageReply XcbShmPixmap::getImageReply(xcb_connection_t* conn, xcb_drawable_t drawable, const QRect & reg, uint32_t offset)
+{
+    auto xcbReply = getReplyFunc1(xcb_shm_get_image, conn, drawable, reg.x(), reg.y(), reg.width(), reg.height(),
+                                    0xFFFFFFFF, XCB_IMAGE_FORMAT_Z_PIXMAP, shmseg, offset);
+    if(auto err = xcbReply.error())
+    {
+        qWarning() << err.toString("xcb_shm_get_image");
+        return nullptr;
+    }
+
+    return xcbReply.reply();
+}
+
+XcbPixmapInfoReply XcbShmPixmap::getPixmap(const XcbShmGetImageReply & reply) const
+{
+    return reply ? std::make_unique<PixmapInfoShm>(reply->depth, reply->visual, addr, reply->size) : nullptr;
+}
+
+/* Xcb Xfixes */
+XcbXfixes::XcbXfixes(xcb_connection_t* conn)
+{
+    auto xfixes = xcb_get_extension_data(conn, &xcb_xfixes_id);
+    if(! xfixes || ! xfixes->present)
+    {
+        qWarning() << "xcb_xfixes failed";
+        throw xcb_error(__FUNCTION__);
+    }
+
+    auto xcbReply = getReplyFunc1(xcb_xfixes_query_version, conn, XCB_XFIXES_MAJOR_VERSION, XCB_XFIXES_MINOR_VERSION);
+
+    if(auto err = xcbReply.error())
+    {
+        qWarning() << err.toString("xcb_xfixes_query_version");
+        throw xcb_error(__FUNCTION__);
+    }
+
+    if(auto reply = xcbReply.reply())
+    {
+        qDebug() << QString("xfixes version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
+    }
+    else
+    {
+        qWarning() << "xcb_xfixes_query_version failed";
+        throw xcb_error(__FUNCTION__);
+    }
+}
+
+XcbXfixesGetCursorImageReply XcbXfixes::getCursorImageReply(xcb_connection_t* conn) const
+{
+    auto xcbReply = getReplyFunc1(xcb_xfixes_get_cursor_image, conn);
+
+    if(auto err = xcbReply.error())
+    {
+        qWarning() << err.toString("xcb_xfixes_get_cursor_image");
+        return nullptr;
+    }
+
+    return xcbReply.reply();
+}
+
+uint32_t* XcbXfixes::getCursorImageData(const XcbXfixesGetCursorImageReply & reply) const
+{
+    return xcb_xfixes_get_cursor_image_cursor_image(reply.get());
+}
+
+size_t XcbXfixes::getCursorImageLength(const XcbXfixesGetCursorImageReply & reply) const
+{
+    return xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
 }
 
 /* XcbConnection */
@@ -169,31 +405,40 @@ XcbConnection::XcbConnection() :
     if(! format)
         throw std::runtime_error("xcb init format");
 
-    // shm
-    if(initSHM())
-    {
-        const int bpp = format->bits_per_pixel >> 3;
-        const int pagesz = 4096;
-        auto winsz = getWindowSize(screen->root);
-        const size_t shmsz = ((winsz.width() * winsz.height() * bpp / pagesz) + 1) * pagesz;
+    const int bpp = format->bits_per_pixel >> 3;
+    const int pagesz = 4096;
+    auto winsz = getWindowSize(screen->root);
+    const size_t shmsz = ((winsz.width() * winsz.height() * bpp / pagesz) + 1) * pagesz;
 
-        try
-        {
-            extSHM = getSHM(shmsz);
-        }
-        catch(const shm_error &)
-        {
-            qWarning() << "shm skipped";
-        }
-    }
-    else
+    // shm
+    try
     {
-        qWarning() << "xcb init failed";
+        shmpix = std::make_unique<XcbShmPixmap>(conn.get(), shmsz);
+    }
+    catch( const xcb_error &)
+    {
+        qWarning() << "shm pixmap init failed";
+    }
+
+    // composite
+    try
+    {
+        composite = std::make_unique<XcbComposite>(conn.get());
+    }
+    catch( const xcb_error &)
+    {
+        qWarning() << "composite init failed";
     }
 
     // xfixes
-    if(! initXFIXES())
+    try
+    {
+        xfixes = std::make_unique<XcbXfixes>(conn.get());
+    }
+    catch( const xcb_error &)
+    {
         qWarning() << "xfixes init failed";
+    }
 
     // event filter
     const uint32_t values[] = { XCB_EVENT_MASK_PROPERTY_CHANGE };
@@ -202,73 +447,54 @@ XcbConnection::XcbConnection() :
     xcb_flush(conn.get());
 }
 
-bool XcbConnection::initSHM(void)
+XcbConnection::~XcbConnection()
 {
-    auto shm = xcb_get_extension_data(conn.get(), &xcb_shm_id);
-    if(! shm || ! shm->present)
-        return false;
+    if(shmpix)
+        shmpix->detach(conn.get());
+}
 
-    auto xcbReply = getReplyFunc2(xcb_shm_query_version, conn.get());
-
-    if(auto err = xcbReply.error())
-        qWarning() << err.toString("xcb_shm_query_version");
-    else
-    if(xcbReply.reply())
+xcb_window_t XcbConnection::getWindowParent(xcb_window_t win) const
+{
+    if(screen->root != win)
     {
-        // qWarning() << QString("shm version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
-        return true;
+        auto xcbReply = getReplyFunc2(xcb_query_tree, conn.get(), win);
+
+        if(auto reply = xcbReply.reply())
+            return reply->parent;
+
+        qWarning() << "xcb_query_tree failed";
+    }
+    return XCB_WINDOW_NONE;
+}
+
+QPoint XcbConnection::translateCoordinates(xcb_window_t win, const QPoint & pos, xcb_window_t parent) const
+{
+    if(parent == XCB_WINDOW_NONE)
+        parent = getWindowParent(win);
+
+    if(parent != XCB_WINDOW_NONE)
+    {
+        auto xcbReply = getReplyFunc2(xcb_translate_coordinates, conn.get(), win, parent, pos.x(), pos.y());
+
+        if(auto reply = xcbReply.reply())
+            return QPoint(reply->dst_x, reply->dst_y);
     }
 
-    return false;
+    return pos;
 }
 
-bool XcbConnection::initXFIXES(void)
-{
-    auto xfixes = xcb_get_extension_data(conn.get(), &xcb_xfixes_id);
-    if(! xfixes || ! xfixes->present)
-        return false;
-
-    auto xcbReply = getReplyFunc2(xcb_xfixes_query_version, conn.get(), XCB_XFIXES_MAJOR_VERSION, XCB_XFIXES_MINOR_VERSION);
-
-    if(auto err = xcbReply.error())
-        qWarning() << err.toString("xcb_xfixes_query_version");
-    else
-    if(xcbReply.reply())
-    {
-        // qWarning() << QString("xfixes version: %1.%1").arg(reply->major_version).arg(reply->minor_version);
-        return true;
-    }
-
-    return false;
-}
-
-XcbSHM XcbConnection::getSHM(size_t shmsz)
-{
-    // init shm
-    int shmid = shmget(IPC_PRIVATE, shmsz, IPC_CREAT | S_IRUSR | S_IWUSR);
-
-    if(shmid == -1)
-        throw shm_error("shmget failed");
-
-    uint8_t* shmaddr = reinterpret_cast<uint8_t*>(shmat(shmid, 0, 0));
-
-    // man shmat: check result
-    if(shmaddr == reinterpret_cast<uint8_t*>(-1))
-        throw shm_error("shmat failed");
-
-    return XcbSHM(shmid, shmaddr, conn.get());
-}
-
-QRect XcbConnection::getWindowGeometry(xcb_window_t win) const
+QRect XcbConnection::getWindowGeometry(xcb_window_t win, bool abspos) const
 {
     auto xcbReply = getReplyFunc2(xcb_get_geometry, conn.get(), win);
 
     if(auto reply = xcbReply.reply())
     {
-        auto xcbReply2 = getReplyFunc2(xcb_translate_coordinates, conn.get(), win, screen->root, reply->x, reply->y);
-
-        if(auto reply2 = xcbReply2.reply())
-            return QRect(reply2->dst_x, reply2->dst_y, reply->width, reply->height);
+        // ref: https://xcb.freedesktop.org/windowcontextandmanipulation/
+        if(abspos)
+        {
+            QPoint trans = translateCoordinates(win, QPoint(reply->x, reply->y), screen->root);
+            return QRect(trans, QSize(reply->width, reply->height));
+        }
 
         return QRect(reply->x, reply->y, reply->width, reply->height);
     }
@@ -276,9 +502,9 @@ QRect XcbConnection::getWindowGeometry(xcb_window_t win) const
     return QRect();
 }
 
-QPoint XcbConnection::getWindowPosition(xcb_window_t win) const
+QPoint XcbConnection::getWindowPosition(xcb_window_t win, bool abspos) const
 {
-    return getWindowGeometry(win).topLeft();
+    return getWindowGeometry(win, abspos).topLeft();
 }
 
 QSize XcbConnection::getWindowSize(xcb_window_t win) const
@@ -353,10 +579,17 @@ xcb_visualtype_t* XcbConnection::findVisual(xcb_visualid_t vid) const
     return nullptr;
 }
 
+xcb_window_t XcbConnection::getScreenRoot(void) const
+{
+    return screen->root;
+}
+
+/*
 xcb_screen_t* XcbConnection::getScreen(void) const
 {
     return screen;
 }
+*/
 
 xcb_atom_t XcbConnection::getAtom(const QString & name, bool create) const
 {
@@ -498,27 +731,30 @@ WinFrameSize XcbConnection::getWindowFrame(xcb_window_t win) const
     return res;
 }
 
-QPair<XcbPixmapInfoReply, QString>
-    XcbConnection::getWindowRegion(xcb_window_t win, const QRect & reg, uint32_t planeMask) const
+XcbPixmapInfoReply XcbConnection::getWindowRegion(xcb_window_t win, const QRect & reg, QString* errstr) const
 {
-    if(extSHM)
+    if(shmpix)
     {
-        auto res = extSHM.getPixmapRegion(win, reg, 0, planeMask);
-        return QPair<XcbPixmapInfoReply, QString>(res.first, res.second.toString());
+        auto reply = shmpix->getImageReply(conn.get(), win, reg);
+        return shmpix->getPixmap(reply);
     }
 
-    QPair<XcbPixmapInfoReply, QString> res;
     int pitch = reg.width() * (format->bits_per_pixel >> 2);
 
     if(0 >= pitch || 0 >= reg.height())
     {
-        res.second = QString("incorrect size: %1 %2").arg(reg.width()).arg(reg.height());
-        qWarning() << res.second;
-        return res;
+        auto msg = QString("incorrect size: %1 %2").arg(reg.width()).arg(reg.height());
+        qWarning() << msg;
+        if(errstr)
+            *errstr = msg;
+        return nullptr;
     }
 
-    XcbPixmapInfoBuffer* info = nullptr;
-    uint32_t maxReqLength = xcb_get_maximum_request_length(conn.get());
+    XcbPixmapInfoReply res;
+    PixmapInfoBuffer* info = nullptr;
+
+    const uint32_t planeMask = 0xFFFFFFFF;
+    const uint32_t maxReqLength = xcb_get_maximum_request_length(conn.get());
     uint32_t allowRows = qMin(maxReqLength / pitch, (uint32_t) reg.height());
 
     for(int64_t yy = reg.y(); yy < reg.y() + reg.height(); yy += allowRows)
@@ -528,17 +764,23 @@ QPair<XcbPixmapInfoReply, QString>
             allowRows = reg.y() + reg.height() - yy;
 
         auto xcbReply = getReplyFunc2(xcb_get_image, conn.get(), XCB_IMAGE_FORMAT_Z_PIXMAP, win, reg.x(), yy, reg.width(), allowRows, planeMask);
+
         if(auto err = xcbReply.error())
         {
-            res.second = err.toString("xcb_get_image");
-            qWarning() << res.second;
+            auto msg = err.toString("xcb_get_image");
+            qWarning() << msg;
+            if(errstr)
+                *errstr = msg;
             break;
         }
 
         if(auto reply = xcbReply.reply())
         {
-            if(! info)
-                info = new XcbPixmapInfoBuffer(reply->depth, reply->visual, reg.height() * pitch);
+            if(! res)
+            {
+                info = new PixmapInfoBuffer(reply->depth, reply->visual, reg.height() * pitch);
+                res.reset(info);
+            }
 
             auto length = xcb_get_image_data_length(reply.get());
             auto data = xcb_get_image_data(reply.get());
@@ -548,6 +790,5 @@ QPair<XcbPixmapInfoReply, QString>
         }
     }
 
-    res.first.reset(info);
     return res;
 }

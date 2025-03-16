@@ -8,7 +8,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -Wall -Wno-sign-comp
 include(FindPkgConfig)
 set(CMAKE_FIND_FRAMEWORK LAST)
 
-project(XcbWindowCapture VERSION 20250305.1)
+project(XcbWindowCapture VERSION 20250316.1)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -20,6 +20,7 @@ find_package(Threads REQUIRED)
 pkg_search_module(XCB REQUIRED xcb)
 pkg_search_module(XCB_SHM REQUIRED xcb-shm)
 pkg_search_module(XCB_XFIXES REQUIRED xcb-xfixes)
+pkg_search_module(XCB_COMPOSITE REQUIRED xcb-composite)
 pkg_search_module(AVDEVICE REQUIRED libavdevice)
 pkg_search_module(AVFORMAT REQUIRED libavformat)
 pkg_search_module(AVCODEC REQUIRED libavcodec)
@@ -47,7 +48,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 
 endif()
 
-target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS} ${XCB_XFIXES_CFLAGS} )
+target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS} ${XCB_XFIXES_CFLAGS} ${XCB_COMPOSITE_CFLAGS} )
 target_compile_options(XcbWindowCapture PUBLIC ${AVDEVICE_CFLAGS} ${AVFORMAT_CFLAGS} ${AVCODEC_CFLAGS} ${AVSWSCALE_CFLAGS} ${AVSWRESAMPLE_CFLAGS} ${AVUTIL_CFLAGS})
 target_compile_options(XcbWindowCapture PUBLIC ${PULSE_CFLAGS})
 
@@ -56,7 +57,7 @@ target_link_options(XcbWindowCapture PUBLIC ${AVDEVICE_LDFLAGS} ${AVFORMAT_LDFLA
 target_link_options(XcbWindowCapture PUBLIC  ${PULSE_LDFLAGS})
 
 target_link_libraries(XcbWindowCapture Qt5::Core Qt5::Gui Qt5::Widgets)
-target_link_libraries(XcbWindowCapture ${XCB_LIBRARIES} ${XCB_SHM_LIBRARIES} ${XCB_XFIXES_LIBRARIES})
+target_link_libraries(XcbWindowCapture ${XCB_LIBRARIES} ${XCB_SHM_LIBRARIES} ${XCB_XFIXES_LIBRARIES} ${XCB_COMPOSITE_LIBRARIES} )
 target_link_libraries(XcbWindowCapture ${AVDEVICE_LIBRARIES} ${AVFORMAT_LIBRARIES} ${AVCODEC_LIBRARIES} ${AVSWSCALE_LIBRARIES} ${AVSWRESAMPLE_LIBRARIES} ${AVUTIL_LIBRARIES})
 target_link_libraries(XcbWindowCapture ${PULSE_LIBRARIES})
 target_link_libraries(XcbWindowCapture Threads::Threads)

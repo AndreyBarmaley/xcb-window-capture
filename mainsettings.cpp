@@ -54,7 +54,7 @@
 
 /* MainSettings */
 MainSettings::MainSettings(QWidget* parent) :
-    QWidget(parent), ui(new Ui::MainSettings), windowId(XCB_WINDOW_NONE)
+    QWidget(parent), ui(new Ui::MainSettings)
 {
     actionSettings = new QAction("Settings", this);
     actionStart = new QAction("Start", this);
@@ -77,10 +77,11 @@ MainSettings::MainSettings(QWidget* parent) :
         ui->comboBoxH264Preset->addItem(FFMPEG::H264Preset::name(type), type);
     }
     ui->comboBoxH264Preset->setCurrentIndex(ui->comboBoxH264Preset->findData(FFMPEG::H264Preset::Medium));
-    ui->checkBoxRemoveWinDecor->setVisible(false);
     ui->pushButtonStart->setDisabled(true);
-    // FIXME: need use XCompositeGetOverlayWindow
     ui->checkBoxShowCursor->setChecked(true);
+
+    ui->checkBoxUseComposite->setChecked(true);
+    ui->checkBoxRemoveWinDecor->setChecked(true);
 
     ui->lineEditRegion->setDisabled(true);
     ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
@@ -106,12 +107,41 @@ MainSettings::MainSettings(QWidget* parent) :
 
     xcb.reset(new XcbConnection());
 
+    if(! xcb->getXfixesExtension())
+    {
+        ui->checkBoxShowCursor->setChecked(false);
+        ui->checkBoxShowCursor->setDisabled(true);
+        ui->checkBoxShowCursor->setToolTip("xcb-xfixes not found");
+    }
+    else
+    {
+        ui->checkBoxShowCursor->setToolTip("xcb-xfixes used");
+    }
+
+    if(! xcb->getCompositeExtension())
+    {
+        ui->checkBoxUseComposite->setChecked(false);
+        ui->checkBoxUseComposite->setDisabled(true);
+        ui->checkBoxUseComposite->setToolTip("xcb-composite not found");
+    }
+    else
+    {
+        ui->checkBoxUseComposite->setToolTip("xcb-composite used");
+    }
+
     connect(actionSettings, SIGNAL(triggered()), this, SLOT(show()));
     connect(actionStart, SIGNAL(triggered()), this, SLOT(startRecord()));
     connect(actionStop, SIGNAL(triggered()), this, SLOT(stopRecord()));
     connect(actionExit, SIGNAL(triggered()), this, SLOT(exitProgram()));
     connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)), this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
     connect(this, SIGNAL(updatePreviewNotify(quint32)), this, SLOT(updatePreviewLabel(quint32)));
+
+/*
+    connect(ui->checkBoxUseComposite, & QCheckBox::stateChanged,
+        [=](int state)
+        {
+        });
+*/
 }
 
 MainSettings::~MainSettings()
@@ -186,6 +216,10 @@ void MainSettings::configSave(void)
     ds << ui->checkBoxFocused->isChecked();
     ds << ui->lineEditAudioBitrate->text().toInt();
     ds << ui->comboBoxAudioPlugin->currentIndex();
+
+    // 20250316
+    ds << ui->checkBoxRemoveWinDecor->isChecked();
+    ds << ui->checkBoxUseComposite->isChecked();
 }
 
 void MainSettings::configLoad(void)
@@ -241,26 +275,38 @@ void MainSettings::configLoad(void)
         ds >> audioPlugin;
         ui->comboBoxAudioPlugin->setCurrentIndex(audioPlugin);
     }
+
+    if(20250315 < version)
+    {
+        bool removeDecor;
+        ds >> removeDecor;
+        ui->checkBoxRemoveWinDecor->setChecked(removeDecor);
+
+        bool useComposite;
+        ds >> useComposite;
+        ui->checkBoxUseComposite->setChecked(useComposite);
+    }
 }
 
 void MainSettings::updatePreviewLabel(quint32 win)
 {
     if(win != XCB_WINDOW_NONE)
     {
-        auto winsz = xcb->getWindowSize(win);
-        auto pair = xcb->getWindowRegion(win, QRect(QPoint(0, 0), winsz));
+        QString errstr;
 
-        if(pair.first)
+        auto winsz = xcb->getWindowSize(win);
+        auto reply = xcb->getWindowRegion(win, QRect(QPoint(0, 0), winsz), & errstr);
+
+        if(reply)
         {
-            auto & reply = pair.first;
-            int bytePerPixel = xcb->bppFromDepth(reply->depth()) >> 3;
+            int bytePerPixel = xcb->bppFromDepth(reply->pixmapDepth()) >> 3;
             int bytesPerLine = bytePerPixel * winsz.width();
 
-            if(reply->size() > (uint32_t) (winsz.width() * winsz.height() * bytePerPixel))
-                    bytesPerLine += reply->size() / (winsz.height() * bytePerPixel) - winsz.width();
+            if(reply->pixmapSize() > (uint32_t) (winsz.width() * winsz.height() * bytePerPixel))
+                    bytesPerLine += reply->pixmapSize() / (winsz.height() * bytePerPixel) - winsz.width();
 
             auto width = ui->groupBoxPreview->width();
-            auto image = QImage(reply->data(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888).scaled(width, width, Qt::KeepAspectRatio);
+            auto image = QImage(reply->pixmapData(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888).scaled(width, width, Qt::KeepAspectRatio);
 
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
             image = image.rgbSwapped();
@@ -278,7 +324,7 @@ void MainSettings::updatePreviewLabel(quint32 win)
         }
         else
         {
-            ui->labelPreview->setText(pair.second);
+            ui->labelPreview->setText(errstr);
         }
     }
 }
@@ -288,15 +334,16 @@ void MainSettings::selectWindows(void)
     QMap<QString, xcb_window_t> windows;
     QString rootScreen("<root screen>");
 
-    windows.insert(rootScreen, xcb->getScreen()->root);
+    windows.insert(rootScreen, xcb->getScreenRoot());
 
-    for(auto & win : xcb->getWindowList())
+    for(auto win : xcb->getWindowList())
     {
+        auto parent = xcb->getWindowParent(win);
         auto list = xcb->getPropertyStringList(win, XCB_ATOM_WM_CLASS);
         auto name = xcb->getWindowName(win);
-        QString key = list.size() ? QString("%1.%2 (%3)").arg(list.front()).arg(list.back()).arg(name) : name;
+        QString key = list.size() ? QString("0x%1 %2.%3 (%4)").arg(win, 0, 16).arg(list.front()).arg(list.back()).arg(name) : name;
 
-        windows.insert(key, win);
+        windows.insert(key, ui->checkBoxRemoveWinDecor->isChecked() ? win : parent);
     }
 
     if(windows.size())
@@ -364,6 +411,26 @@ bool MainSettings::startRecord(void)
             }
         }
 
+        auto composite = ui->checkBoxUseComposite->isChecked() ?
+                xcb->getCompositeExtension() : nullptr;
+
+        if(composite)
+        {
+            if(composite->redirectWindow(xcb->connection(), windowId))
+            {
+                if(! composite->redirectSubWindows(xcb->connection(), windowId))
+                {
+                    qWarning() << "composite redirect window failed";
+                }
+
+                compositeId = composite->nameWindowPixmap(xcb->connection(), windowId);
+            }
+            else
+            {
+                qWarning() << "composite redirect window failed";
+            }
+        }
+
         // check preffered region
         auto winsz = xcb->getWindowSize(windowId);
         auto realRegion = QRect(QPoint(0, 0), winsz);
@@ -399,7 +466,7 @@ bool MainSettings::startRecord(void)
 
         try
         {
-            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, prefRegion, xcb, fileFormat.toStdString(), renderCursor, startFocused, ! ui->checkBoxRemoveWinDecor->isChecked(), audioPlugin, audioBitrate, this));
+            encoder.reset(new FFmpegEncoderPool(h264Preset, videoBitrate, windowId, compositeId, prefRegion, xcb, fileFormat.toStdString(), renderCursor, startFocused, audioPlugin, audioBitrate, this));
         }
         catch(const FFMPEG::runtimeException & err)
         {
@@ -453,6 +520,18 @@ void MainSettings::restartRecord(void)
 
 void MainSettings::stopRecord(QString error)
 {
+    if(compositeId != XCB_PIXMAP_NONE)
+    {
+        if(auto composite = xcb->getCompositeExtension())
+        {
+            composite->unredirectSubWindows(xcb->connection(), windowId);
+            composite->unredirectWindow(xcb->connection(), windowId);
+        }
+
+        xcb_free_pixmap(xcb->connection(), compositeId);
+        compositeId = XCB_PIXMAP_NONE;
+    }
+
     windowId = XCB_WINDOW_NONE;
 
     ui->lineEditWindowDescription->clear();
@@ -485,9 +564,9 @@ void MainSettings::stopRecord(void)
 }
 
 /* FFmpegEncoderPool */
-FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int vbitrate, xcb_window_t win, const QRect & region,
-    std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool focused, bool decor, const AudioPlugin & audioPlugin, int audioBitrate, QObject* obj)
-    : QThread(obj), FFMPEG::H264Encoder(preset, vbitrate, audioPlugin, audioBitrate), windowId(win), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), startFocused(focused), winDecor(decor)
+FFmpegEncoderPool::FFmpegEncoderPool(const FFMPEG::H264Preset::type & preset, int vbitrate, xcb_window_t win, xcb_window_t composite, const QRect & region,
+    std::shared_ptr<XcbConnection> ptr, const std::string & format, bool cursor, bool focused, const AudioPlugin & audioPlugin, int audioBitrate, QObject* obj)
+    : QThread(obj), FFMPEG::H264Encoder(preset, vbitrate, audioPlugin, audioBitrate), windowId(win), compositeId(composite), windowRegion(region), xcb(ptr), shutdown(false), showCursor(cursor), startFocused(focused)
 {
     time_t raw;
     std::time(& raw);
@@ -513,10 +592,6 @@ FFmpegEncoderPool::~FFmpegEncoderPool()
 void FFmpegEncoderPool::run(void)
 {
     auto durationMS = std::chrono::milliseconds(1000 / video.fps);
-    auto winsz = xcb->getWindowSize(windowId);
-
-    windowRegion = QRect(QPoint(0, 0), winsz).intersected(windowRegion);
-
     auto now = std::chrono::steady_clock::now();
     auto point = now;
 
@@ -580,16 +655,19 @@ void FFmpegEncoderPool::run(void)
             break;
         }
 
-        // window closed
-        if(! xcb->getWindowList().contains(windowId) && windowId != xcb->getScreen()->root)
+        if(windowId != xcb->getScreenRoot())
         {
-            emit shutdownNotify();
-            break;
-        }
+            // window closed
+            if(! xcb->getWindowList().contains(windowId))
+            {
+                emit shutdownNotify();
+                break;
+            }
 
-        // not active, paused
-        if(startFocused && windowId != xcb->getActiveWindow() && windowId != xcb->getScreen()->root)
-            continue;
+            // not active, paused
+            if(startFocused && windowId != xcb->getActiveWindow())
+                continue;
+        }
 
         now = std::chrono::steady_clock::now();
         auto timeMS = std::chrono::duration_cast<std::chrono::milliseconds>(now - point);
@@ -598,63 +676,53 @@ void FFmpegEncoderPool::run(void)
         {
             point = now;
 
-            auto winsz = xcb->getWindowSize(windowId);
-
-            // check window size (not changed)
-            if(! QRect(QPoint(0, 0), winsz).contains(windowRegion))
+            if(windowId != xcb->getScreenRoot())
             {
-                qWarning() << "window size changed";
-                emit restartNotify();
-                break;
+                // check window size changed
+                auto currentRegion = QRect(QPoint(0, 0), xcb->getWindowSize(windowId));
+                if(! currentRegion.contains(windowRegion))
+                {
+                    qWarning() << "window size changed";
+                    emit restartNotify();
+                    break;
+                }
             }
 
-            auto pair = xcb->getWindowRegion(windowId, windowRegion);
-            if(! pair.first)
+            auto reply = xcb->getWindowRegion(compositeId ? compositeId : windowId, windowRegion);
+            if(! reply)
             {
                 emit errorNotify("xcb getWindowRegion failed");
                 break;
             }
 
-            auto & reply = pair.first;
-            if(! reply->data() || 0 == reply->size())
+            if(! reply->pixmapData() || 0 == reply->pixmapSize())
             {
                 emit errorNotify("empty image data");
                 break;
             }
 
-            int bytesPerLine = reply->size() / windowRegion.height();
+            int bytesPerLine = reply->pixmapSize() / windowRegion.height();
+            auto xfixes = xcb->getXfixesExtension();
 
             // sync cursor
-            if(showCursor)
+            if(showCursor && xfixes)
             {
-                QImage windowImage(reply->data(), windowRegion.width(), windowRegion.height(), bytesPerLine, QImage::Format_RGBX8888);
-                auto replyCursor = xcb->getReplyFunc2(xcb_xfixes_get_cursor_image, xcb->connection());
+                QImage windowImage(reply->pixmapData(), windowRegion.width(), windowRegion.height(), bytesPerLine, QImage::Format_RGBX8888);
 
-                if(auto err = replyCursor.error())
+                if(auto cursorReply = xfixes->getCursorImageReply(xcb->connection()))
                 {
-                    qWarning() << err.toString("xcb_xfixes_get_cursor_image");
-                }
-                else
-                if(auto reply = replyCursor.reply())
-                {
-                    auto absRegion = xcb->getWindowGeometry(windowId);
+                    auto absRegion = QRect(xcb->getWindowPosition(windowId) + windowRegion.topLeft(), windowRegion.size());
 
-                    if(windowRegion.size() != absRegion.size())
-                        absRegion.setSize(windowRegion.size());
-
-                    if(windowRegion.topLeft().isNull())
-                        absRegion.setTopLeft(absRegion.topLeft() + windowRegion.topLeft());
-
-                    if(absRegion.contains(QRect(reply->x, reply->y, reply->width, reply->height)))
+                    if(absRegion.contains(QRect(cursorReply->x, cursorReply->y, cursorReply->width, cursorReply->height)))
                     {
-                        uint32_t* ptr = xcb_xfixes_get_cursor_image_cursor_image(reply.get());
-                        int len = xcb_xfixes_get_cursor_image_cursor_image_length(reply.get());
+                        uint32_t* ptr = xfixes->getCursorImageData(cursorReply);
+                        size_t len = xfixes->getCursorImageLength(cursorReply);
 
                         if(ptr && 0 < len)
                         {
-                            auto winFrame = xcb->getWindowFrame(windowId);
-                            QImage cursorImage((uint8_t*) ptr, reply->width, reply->height, QImage::Format_RGBA8888);
-                            QPoint cursorPosition(reply->x + winFrame.left, reply->y + winFrame.top);
+                            auto winFrame = windowId != xcb->getScreenRoot() ? xcb->getWindowFrame(windowId) : WinFrameSize{0,0,0,0};
+                            QImage cursorImage((uint8_t*) ptr, cursorReply->width, cursorReply->height, QImage::Format_RGBA8888);
+                            QPoint cursorPosition(cursorReply->x + winFrame.left, cursorReply->y + winFrame.top);
                             QPainter painter(& windowImage);
                             painter.drawImage(cursorPosition - absRegion.topLeft(), cursorImage);
                         }
@@ -664,7 +732,7 @@ void FFmpegEncoderPool::run(void)
 
             try
             {
-                encodeFrame(reply->data(), bytesPerLine, windowRegion.height());
+                encodeFrame(reply->pixmapData(), bytesPerLine, windowRegion.height());
             }
             catch(const FFMPEG::runtimeException & err)
             {
