@@ -38,21 +38,21 @@
 #include "xcb/composite.h"
 
 template<typename ReplyType>
-struct GenericReply : std::shared_ptr<ReplyType>
+struct GenericReply : std::unique_ptr<ReplyType, void(*)(void*)>
 {
-    GenericReply(ReplyType* ptr) : std::shared_ptr<ReplyType>(ptr, std::free) {}
+    GenericReply(ReplyType* ptr) : std::unique_ptr<ReplyType, void(*)(void*)>(ptr, std::free) {}
 };
 
-struct GenericError : std::shared_ptr<xcb_generic_error_t>
+struct GenericError : std::unique_ptr<xcb_generic_error_t, void(*)(void*)>
 {
-    GenericError(xcb_generic_error_t* err) : std::shared_ptr<xcb_generic_error_t>(err, std::free) {}
+    GenericError(xcb_generic_error_t* err) : std::unique_ptr<xcb_generic_error_t, void(*)(void*)>(err, std::free) {}
     QString toString(const char* func = nullptr) const;
 };
 
-struct GenericEvent : std::shared_ptr<xcb_generic_event_t>
+struct GenericEvent : std::unique_ptr<xcb_generic_event_t, void(*)(void*)>
 {
-    GenericEvent(xcb_generic_event_t* ev) : std::shared_ptr<xcb_generic_event_t>(ev, std::free) {}
-    const xcb_generic_error_t*  toerror(void) const { return reinterpret_cast<const xcb_generic_error_t*>(get()); }
+    GenericEvent(xcb_generic_event_t* ev) : std::unique_ptr<xcb_generic_event_t, void(*)(void*)>(ev, std::free) {}
+    const xcb_generic_error_t* toerror(void) const { return reinterpret_cast<const xcb_generic_error_t*>(get()); }
 };
 
 template<typename ReplyType>
@@ -79,9 +79,8 @@ struct XcbPropertyReply : GenericReply<xcb_get_property_reply_t>
     void* value(void) { return xcb_get_property_value(get()); }
         
     XcbPropertyReply(xcb_get_property_reply_t* ptr) : GenericReply<xcb_get_property_reply_t>(ptr) {}
-    XcbPropertyReply(const GenericReply<xcb_get_property_reply_t> & ptr) : GenericReply<xcb_get_property_reply_t>(ptr) {}
+    XcbPropertyReply( GenericReply<xcb_get_property_reply_t> && ptr) noexcept : GenericReply<xcb_get_property_reply_t>(std::move(ptr)) {}
 };
-
 
 /// XcbPixmapInfo
 class XcbPixmapInfo

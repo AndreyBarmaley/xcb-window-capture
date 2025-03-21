@@ -67,13 +67,13 @@ XcbComposite::XcbComposite(xcb_connection_t* conn)
 
     auto xcbReply = getReplyFunc1(xcb_composite_query_version, conn, XCB_COMPOSITE_MAJOR_VERSION, XCB_COMPOSITE_MINOR_VERSION);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_composite_query_version");
         throw xcb_error(__FUNCTION__);
     }
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         qDebug() << QString("composite version: %1.%2").arg(reply->major_version).arg(reply->minor_version);
     }
@@ -167,13 +167,13 @@ xcb_window_t XcbComposite::getOverlayWindow(xcb_connection_t* conn, xcb_window_t
 {
     auto xcbReply = getReplyFunc1(xcb_composite_get_overlay_window, conn, win);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_composite_get_overlay_window");
         return XCB_WINDOW_NONE;
     }
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
         return reply->overlay_win;
 
     return XCB_WINDOW_NONE;
@@ -204,13 +204,13 @@ XcbShm::XcbShm(xcb_connection_t* conn)
 
     auto xcbReply = getReplyFunc1(xcb_shm_query_version, conn);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_shm_query_version");
         throw xcb_error(__FUNCTION__);
     }
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         qDebug() << QString("shm version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
     }
@@ -320,13 +320,13 @@ XcbShmGetImageReply XcbShmPixmap::getImageReply(xcb_connection_t* conn, xcb_draw
 {
     auto xcbReply = getReplyFunc1(xcb_shm_get_image, conn, drawable, reg.x(), reg.y(), reg.width(), reg.height(),
                                     0xFFFFFFFF, XCB_IMAGE_FORMAT_Z_PIXMAP, shmseg, offset);
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_shm_get_image");
         return nullptr;
     }
 
-    return xcbReply.reply();
+    return std::move(xcbReply.first);
 }
 
 XcbPixmapInfoReply XcbShmPixmap::getPixmap(const XcbShmGetImageReply & reply) const
@@ -346,13 +346,13 @@ XcbXfixes::XcbXfixes(xcb_connection_t* conn)
 
     auto xcbReply = getReplyFunc1(xcb_xfixes_query_version, conn, XCB_XFIXES_MAJOR_VERSION, XCB_XFIXES_MINOR_VERSION);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_xfixes_query_version");
         throw xcb_error(__FUNCTION__);
     }
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         qDebug() << QString("xfixes version: %1.%2").arg((int) reply->major_version).arg((int) reply->minor_version);
     }
@@ -367,13 +367,13 @@ XcbXfixesGetCursorImageReply XcbXfixes::getCursorImageReply(xcb_connection_t* co
 {
     auto xcbReply = getReplyFunc1(xcb_xfixes_get_cursor_image, conn);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
     {
         qWarning() << err.toString("xcb_xfixes_get_cursor_image");
         return nullptr;
     }
 
-    return xcbReply.reply();
+    return std::move(xcbReply.first);
 }
 
 uint32_t* XcbXfixes::getCursorImageData(const XcbXfixesGetCursorImageReply & reply) const
@@ -459,7 +459,7 @@ xcb_window_t XcbConnection::getWindowParent(xcb_window_t win) const
     {
         auto xcbReply = getReplyFunc2(xcb_query_tree, conn.get(), win);
 
-        if(auto reply = xcbReply.reply())
+        if(auto & reply = xcbReply.reply())
             return reply->parent;
 
         qWarning() << "xcb_query_tree failed";
@@ -469,14 +469,11 @@ xcb_window_t XcbConnection::getWindowParent(xcb_window_t win) const
 
 QPoint XcbConnection::translateCoordinates(xcb_window_t win, const QPoint & pos, xcb_window_t parent) const
 {
-    if(parent == XCB_WINDOW_NONE)
-        parent = getWindowParent(win);
-
     if(parent != XCB_WINDOW_NONE)
     {
         auto xcbReply = getReplyFunc2(xcb_translate_coordinates, conn.get(), win, parent, pos.x(), pos.y());
 
-        if(auto reply = xcbReply.reply())
+        if(auto & reply = xcbReply.reply())
             return QPoint(reply->dst_x, reply->dst_y);
     }
 
@@ -487,13 +484,18 @@ QRect XcbConnection::getWindowGeometry(xcb_window_t win, bool abspos) const
 {
     auto xcbReply = getReplyFunc2(xcb_get_geometry, conn.get(), win);
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         // ref: https://xcb.freedesktop.org/windowcontextandmanipulation/
         if(abspos)
         {
-            QPoint trans = translateCoordinates(win, QPoint(reply->x, reply->y), screen->root);
-            return QRect(trans, QSize(reply->width, reply->height));
+            auto parent = getWindowParent(win);
+
+            if(parent == XCB_WINDOW_NONE)
+                return QRect(reply->x, reply->y, reply->width, reply->height);
+
+            auto geom = getWindowGeometry(parent, abspos);
+            return QRect(reply->x + geom.x(), reply->y + geom.y(), reply->width, reply->height);
         }
 
         return QRect(reply->x, reply->y, reply->width, reply->height);
@@ -516,7 +518,7 @@ QString XcbConnection::getAtomName(xcb_atom_t atom) const
 {
     auto xcbReply = getReplyFunc2(xcb_get_atom_name, conn.get(), atom);
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         const char* name = xcb_get_atom_name_name(reply.get());
         size_t len = xcb_get_atom_name_name_length(reply.get());
@@ -609,7 +611,7 @@ xcb_window_t XcbConnection::getActiveWindow(void) const
     if(xcbReply.error())
         return XCB_WINDOW_NONE;
 
-    if(auto reply = xcbReply.reply())
+    if(auto & reply = xcbReply.reply())
     {
         if(auto res = static_cast<xcb_window_t*>(xcb_get_property_value(reply.get())))
             return *res;
@@ -622,10 +624,10 @@ XcbPropertyReply XcbConnection::getPropertyAnyType(xcb_window_t win, xcb_atom_t 
 {
     auto xcbReply = getReplyFunc2(xcb_get_property, conn.get(), false, win, prop, XCB_GET_PROPERTY_TYPE_ANY, offset, length);
 
-    if(auto err = xcbReply.error())
+    if(auto & err = xcbReply.error())
         qWarning() << err.toString("xcb_get_property");
 
-    return xcbReply.reply();
+    return XcbPropertyReply(std::move(xcbReply.first));
 }
 
 xcb_atom_t XcbConnection::getPropertyType(xcb_window_t win, xcb_atom_t prop) const
@@ -765,7 +767,7 @@ XcbPixmapInfoReply XcbConnection::getWindowRegion(xcb_window_t win, const QRect 
 
         auto xcbReply = getReplyFunc2(xcb_get_image, conn.get(), XCB_IMAGE_FORMAT_Z_PIXMAP, win, reg.x(), yy, reg.width(), allowRows, planeMask);
 
-        if(auto err = xcbReply.error())
+        if(auto & err = xcbReply.error())
         {
             auto msg = err.toString("xcb_get_image");
             qWarning() << msg;
@@ -774,7 +776,7 @@ XcbPixmapInfoReply XcbConnection::getWindowRegion(xcb_window_t win, const QRect 
             break;
         }
 
-        if(auto reply = xcbReply.reply())
+        if(auto & reply = xcbReply.reply())
         {
             if(! res)
             {

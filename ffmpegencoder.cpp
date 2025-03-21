@@ -387,7 +387,7 @@ namespace FFMPEG
                 throw FFMPEG::runtimeException("av_codec_fill_audio_frame", ret);
 
             // encode frameSrc to frameDst
-            int delay = swr_get_delay(swrctx.get(), frameSrc->sample_rate);
+            // int delay = swr_get_delay(swrctx.get(), frameSrc->sample_rate);
             int dst_nb_samples = av_rescale_rnd(frameSrc->nb_samples, frameDst->sample_rate, frameSrc->sample_rate, AV_ROUND_UP);
 
             ret = av_frame_make_writable(frameDst.get());
