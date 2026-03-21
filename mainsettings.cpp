@@ -82,6 +82,7 @@ MainSettings::MainSettings(QWidget* parent) :
 
     ui->checkBoxUseComposite->setChecked(true);
     ui->checkBoxRemoveWinDecor->setChecked(true);
+    ui->checkBoxRemoveWinDecor->setDisabled(true); // not work
 
     ui->lineEditRegion->setDisabled(true);
     ui->lineEditRegion->setValidator(new QRegExpValidator(QRegExp("(\\d{1,4})x(\\d{1,4})\\+(\\d{1,4})\\+(\\d{1,4})")));
@@ -321,6 +322,8 @@ void MainSettings::updatePreviewLabel(quint32 win)
             windowId = win;
             actionStart->setEnabled(true);
             ui->pushButtonStart->setEnabled(true);
+            
+            qDebug() << "select window" << windowId;
         }
         else
         {
@@ -645,11 +648,14 @@ void FFmpegEncoderPool::run(void)
     // record loop
     while(true)
     {
-        if(shutdown)
+        if(shutdown) {
+            qWarning() << "shutdown";
             break;
+        }
 
         if(int err = xcb_connection_has_error(xcb->connection()))
         {
+            qWarning() << "xcb error";
             emit errorNotify(QString("xcb error code: %1").arg(err));
             emit shutdownNotify();
             break;
@@ -660,6 +666,7 @@ void FFmpegEncoderPool::run(void)
             // window closed
             if(! xcb->getWindowList().contains(windowId))
             {
+                qWarning() << "xcb window not found" << windowId;
                 emit shutdownNotify();
                 break;
             }
@@ -691,12 +698,14 @@ void FFmpegEncoderPool::run(void)
             auto reply = xcb->getWindowRegion(compositeId ? compositeId : windowId, windowRegion);
             if(! reply)
             {
-                emit errorNotify("xcb getWindowRegion failed");
+                qWarning() << "xcb window region failed";
+                emit errorNotify("xcb window region failed");
                 break;
             }
 
             if(! reply->pixmapData() || 0 == reply->pixmapSize())
             {
+                qWarning() << "empty image data";
                 emit errorNotify("empty image data");
                 break;
             }

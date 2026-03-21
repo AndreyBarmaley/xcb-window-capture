@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20250320
+#define VERSION 20260320
 
 #include <QList>
 #include <QObject>

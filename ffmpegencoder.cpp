@@ -86,8 +86,7 @@ namespace FFMPEG
             throw std::runtime_error("av_frame_alloc failed");
 
         frame->format = avcctx->sample_fmt;
-        frame->channel_layout = avcctx->channel_layout;
-        frame->channels = av_get_channel_layout_nb_channels(frame->channel_layout);
+        av_channel_layout_copy(&frame->ch_layout, &avcctx->ch_layout);
         frame->sample_rate = avcctx->sample_rate;
         frame->nb_samples = avcctx->frame_size;
 
@@ -98,15 +97,14 @@ namespace FFMPEG
             throw FFMPEG::runtimeException("av_frame_get_buffer", ret);
     }
 
-    void AudioFrame::init(const AVSampleFormat & format, int layout, int rate, int samples)
+    void AudioFrame::init(const AVSampleFormat & format, int nb_channels, int rate, int samples)
     {
         auto frame = av_frame_alloc();
         if(! frame)
             throw std::runtime_error("av_frame_alloc failed");
 
         frame->format = format;
-        frame->channel_layout = layout;
-        frame->channels = av_get_channel_layout_nb_channels(frame->channel_layout);
+        av_channel_layout_default(&frame->ch_layout, nb_channels);
         frame->sample_rate = rate;
         frame->nb_samples = samples;
 
@@ -125,9 +123,9 @@ namespace FFMPEG
         AVFrame* frame = get();
 
         if(0 == frame->nb_samples)
-            frame->nb_samples = len / (av_get_bytes_per_sample((AVSampleFormat) frame->format) * frame->channels);
+            frame->nb_samples = len / (av_get_bytes_per_sample((AVSampleFormat) frame->format) * frame->ch_layout.nb_channels);
 
-        return avcodec_fill_audio_frame(frame, frame->channels, (AVSampleFormat) frame->format, buf, len, align);
+        return avcodec_fill_audio_frame(frame, frame->ch_layout.nb_channels, (AVSampleFormat) frame->format, buf, len, align);
     }
 
     void VideoFrame::init(const AVPixelFormat & format, int width, int height)
@@ -297,8 +295,7 @@ namespace FFMPEG
         avcctx->bit_rate = bitrate * 1024;
         avcctx->sample_rate = 44100;
 
-        avcctx->channel_layout = AV_CH_LAYOUT_STEREO;
-        avcctx->channels = av_get_channel_layout_nb_channels(avcctx->channel_layout);
+        av_channel_layout_default(&avcctx->ch_layout, AV_CH_LAYOUT_STEREO);
 
         stream->time_base = (AVRational){ 1, avcctx->sample_rate };
 
@@ -337,7 +334,7 @@ namespace FFMPEG
         av_opt_set_int(swrctx.get(), "in_sample_rate", sampleRate, 0);
         av_opt_set_sample_fmt(swrctx.get(), "in_sample_fmt", sampleFormat, 0);
 
-        av_opt_set_int(swrctx.get(), "out_channel_count", avcctx->channels, 0);
+        av_opt_set_int(swrctx.get(), "out_channel_count", avcctx->ch_layout.nb_channels, 0);
         av_opt_set_int(swrctx.get(), "out_sample_rate", avcctx->sample_rate, 0);
         av_opt_set_sample_fmt(swrctx.get(), "out_sample_fmt", avcctx->sample_fmt, 0);
 
@@ -360,7 +357,7 @@ namespace FFMPEG
         else
             tail.insert(tail.end(), raw.begin(), raw.end());
 
-        int ret = av_samples_get_buffer_size(nullptr, frameSrc->channels, frameSrc->nb_samples, sampleFormat, align);
+        int ret = av_samples_get_buffer_size(nullptr, frameSrc->ch_layout.nb_channels, frameSrc->nb_samples, sampleFormat, align);
         if(ret < 0)
             throw FFMPEG::runtimeException("av_samples_get_buffer_size", ret);
 
