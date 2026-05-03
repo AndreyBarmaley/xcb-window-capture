@@ -8,7 +8,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -Wall -Wno-sign-comp
 include(FindPkgConfig)
 set(CMAKE_FIND_FRAMEWORK LAST)
 
-project(XcbWindowCapture VERSION 20250316.1)
+project(XcbWindowCapture VERSION 20250501.1)
 
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -29,7 +29,7 @@ pkg_search_module(AVSWRESAMPLE REQUIRED libswresample)
 pkg_search_module(AVUTIL REQUIRED libavutil)
 pkg_search_module(PULSE REQUIRED libpulse)
 
-add_executable(XcbWindowCapture main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp pulseaudio.cpp resources.qrc)
+add_executable(XcbWindowCapture main.cpp mainsettings.cpp xcbwrapper.cpp ffmpegencoder.cpp pulseaudio.cpp labelpreview.cpp resources.qrc)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(Boost_USE_STATIC_LIBS OFF)
@@ -47,6 +47,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     endif()
 
 endif()
+
+target_include_directories(XcbWindowCapture PRIVATE ./)
 
 target_compile_options(XcbWindowCapture PUBLIC ${XCB_CFLAGS} ${XCB_SHM_CFLAGS} ${XCB_XFIXES_CFLAGS} ${XCB_COMPOSITE_CFLAGS} )
 target_compile_options(XcbWindowCapture PUBLIC ${AVDEVICE_CFLAGS} ${AVFORMAT_CFLAGS} ${AVCODEC_CFLAGS} ${AVSWSCALE_CFLAGS} ${AVSWRESAMPLE_CFLAGS} ${AVUTIL_CFLAGS})

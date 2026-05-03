@@ -295,7 +295,7 @@ namespace FFMPEG
         avcctx->bit_rate = bitrate * 1024;
         avcctx->sample_rate = 44100;
 
-        av_channel_layout_default(&avcctx->ch_layout, AV_CH_LAYOUT_STEREO);
+        av_channel_layout_default(&avcctx->ch_layout, 2);
 
         stream->time_base = (AVRational){ 1, avcctx->sample_rate };
 
@@ -312,7 +312,6 @@ namespace FFMPEG
     {
         auto sampleFormat = avFormatFromPulse(pulse->format());
         int sampleChannels = pulse->channels();
-        int sampleLayout = 1 < pulse->channels() ? AV_CH_LAYOUT_STEREO : AV_CH_LAYOUT_MONO;
         int sampleRate = pulse->rate();
 
         int ret = avcodec_open2(avcctx.get(), codec, nullptr);
@@ -324,11 +323,14 @@ namespace FFMPEG
             throw FFMPEG::runtimeException("avcodec_parameters_from_context", ret);
 
         frameDst.init(avcctx.get());
-        frameSrc.init(sampleFormat, sampleLayout, sampleRate, frameDst->nb_samples);
+        frameSrc.init(sampleFormat, sampleChannels, sampleRate, avcctx->frame_size);
 
         swrctx.reset(swr_alloc());
         if(! swrctx)
             throw std::runtime_error("swr_alloc failed");
+
+        av_opt_set_chlayout(swrctx.get(), "in_chlayout", &frameSrc->ch_layout, 0);
+        av_opt_set_chlayout(swrctx.get(), "out_chlayout", &frameDst->ch_layout, 0);
 
         av_opt_set_int(swrctx.get(), "in_channel_count", sampleChannels, 0);
         av_opt_set_int(swrctx.get(), "in_sample_rate", sampleRate, 0);
@@ -384,7 +386,6 @@ namespace FFMPEG
                 throw FFMPEG::runtimeException("av_codec_fill_audio_frame", ret);
 
             // encode frameSrc to frameDst
-            // int delay = swr_get_delay(swrctx.get(), frameSrc->sample_rate);
             int dst_nb_samples = av_rescale_rnd(frameSrc->nb_samples, frameDst->sample_rate, frameSrc->sample_rate, AV_ROUND_UP);
 
             ret = av_frame_make_writable(frameDst.get());

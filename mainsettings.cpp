@@ -29,6 +29,7 @@
 #include <QPainter>
 #include <QProcess>
 #include <QKeyEvent>
+#include <QTransform>
 #include <QByteArray>
 #include <QFontDialog>
 #include <QFileDialog>
@@ -49,6 +50,7 @@
 
 #include "xcb/xfixes.h"
 
+#include "labelpreview.h"
 #include "mainsettings.h"
 #include "ui_mainsettings.h"
 
@@ -136,6 +138,7 @@ MainSettings::MainSettings(QWidget* parent) :
     connect(actionExit, SIGNAL(triggered()), this, SLOT(exitProgram()));
     connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)), this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
     connect(this, SIGNAL(updatePreviewNotify(quint32)), this, SLOT(updatePreviewLabel(quint32)));
+    connect(ui->labelPreview, SIGNAL(rubberBandChanged(const QRect&)), this, SLOT(previewBandSelected(const QRect&)));
 
 /*
     connect(ui->checkBoxUseComposite, & QCheckBox::stateChanged,
@@ -289,6 +292,21 @@ void MainSettings::configLoad(void)
     }
 }
 
+void MainSettings::previewBandSelected(const QRect& selection)
+{
+    QSize labelSize = ui->labelPreview->size();
+
+    QTransform trans;
+    trans.scale((double)labelSize.width() / originalSize.width(), 
+                (double)labelSize.height() / originalSize.height());
+
+    QTransform inverted = trans.inverted();
+    QRect res = inverted.mapRect(selection);
+
+    // set coordinates
+    ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(res.width() & ~7).arg(res.height() & ~1).arg(res.x()).arg(res.y()));
+}
+
 void MainSettings::updatePreviewLabel(quint32 win)
 {
     if(win != XCB_WINDOW_NONE)
@@ -307,14 +325,14 @@ void MainSettings::updatePreviewLabel(quint32 win)
                     bytesPerLine += reply->pixmapSize() / (winsz.height() * bytePerPixel) - winsz.width();
 
             auto width = ui->groupBoxPreview->width();
-            auto image = QImage(reply->pixmapData(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888).scaled(width, width, Qt::KeepAspectRatio);
+            auto image = QImage(reply->pixmapData(), winsz.width(), winsz.height(), bytesPerLine, QImage::Format_RGBX8888);
 
 #if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
             image = image.rgbSwapped();
 #endif
-
+            originalSize = image.size();
             ui->labelPreview->setScaledContents(true);
-            ui->labelPreview->setPixmap(QPixmap::fromImage(image));
+            ui->labelPreview->setPixmap(QPixmap::fromImage(image.scaled(width, width, Qt::KeepAspectRatio)));
 
             ui->lineEditRegion->setDisabled(false);
             ui->lineEditRegion->setText(QString("%1x%2+%3+%4").arg(winsz.width()).arg(winsz.height()).arg(0).arg(0));

@@ -23,7 +23,7 @@
 #ifndef MAIN_SETTINGS_H
 #define MAIN_SETTINGS_H
 
-#define VERSION 20260320
+#define VERSION 20260501
 
 #include <QList>
 #include <QObject>
@@ -91,6 +91,7 @@ class MainSettings : public QWidget
     QAction* actionStop = nullptr;
     QAction* actionExit = nullptr;
     QString windowClass;
+    QSize originalSize;
 
     xcb_window_t windowId = XCB_WINDOW_NONE;
     xcb_pixmap_t compositeId = XCB_PIXMAP_NONE;
@@ -118,6 +119,7 @@ private slots:
     void iconActivated(QSystemTrayIcon::ActivationReason reason);
     void exitProgram(void);
     void updatePreviewLabel(quint32);
+    void previewBandSelected(const QRect&);
 
 signals:
     void updatePreviewNotify(quint32);
